@@ -5,6 +5,7 @@
 #
 require "rspec"
 require "rspec/support/object_formatter"
+require "amigo/spec_helpers"
 
 RSpec.configure do |config|
   # config.full_backtrace = true
@@ -26,4 +27,5 @@ RSpec.configure do |config|
   config.run_all_when_everything_filtered = true
   config.disable_monkey_patching!
   config.default_formatter = "doc" if config.files_to_run.one?
+  config.include(Amigo::SpecHelpers)
 end

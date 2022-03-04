@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
-require_relative "lib/sidekiq/amigo/version"
+require_relative "lib/amigo/version"
 
 Gem::Specification.new do |s|
   s.name = "sidekiq-amigo"
-  s.version = Sidekiq::Amigo::VERSION
+  s.version = Amigo::VERSION
   s.platform = Gem::Platform::RUBY
   s.summary = "Pubsub system and other enhancements around Sidekiq."
-  s.author = "Lithic Tech"
+  s.author = "Lithic Technology"
+  s.email = "hello@lithic.tech"
   s.homepage = "https://github.com/lithictech/sidekiq-amigo"
   s.licenses = "MIT"
   s.required_ruby_version = ">= 2.7.0"
@@ -22,4 +23,5 @@ Gem::Specification.new do |s|
   s.add_development_dependency("rspec-core", "~> 3.10")
   s.add_development_dependency("rubocop", "~> 1.11")
   s.add_development_dependency("rubocop-performance", "~> 1.10")
+  s.add_development_dependency("timecop", "~> 0")
 end

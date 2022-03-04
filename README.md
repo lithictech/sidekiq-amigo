@@ -1,3 +1,5 @@
 # sidekiq-amigo
 
-A pubsub system and other enhancements around Sidekiq.
+Pubsub system and other enhancements around Sidekiq.
+
+This documentation needs some updating to explain all the cool stuff!
