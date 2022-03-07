@@ -1,13 +1,10 @@
 # frozen_string_literal: true
 
-require "sidekiq/testing"
-
 require "amigo"
 
 class Amigo
   module SpecHelpers
     def self.included(context)
-      Sidekiq::Testing.inline!
       context.before(:each) do |example|
         Amigo.synchronous_mode = true if example.metadata[:async]
       end

@@ -5,7 +5,10 @@
 #
 require "rspec"
 require "rspec/support/object_formatter"
+require "sidekiq/testing"
 require "amigo/spec_helpers"
+
+Sidekiq::Testing.inline!
 
 RSpec.configure do |config|
   # config.full_backtrace = true
