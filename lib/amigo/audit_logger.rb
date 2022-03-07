@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "amigo/job"
+require "amigo"
 
 class Amigo
   class AuditLogger

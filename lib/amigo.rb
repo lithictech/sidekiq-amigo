@@ -98,11 +98,6 @@ require "sidekiq-cron"
 # Splay defaults to 30s; you may wish to always provide splay, whatever you think for your job.
 #
 class Amigo
-  require "amigo/job"
-  require "amigo/scheduled_job"
-  require "amigo/audit_logger"
-  require "amigo/router"
-
   class << self
     attr_accessor :structured_logging
 
@@ -180,6 +175,8 @@ class Amigo
     # Install Amigo so that every publish will be sent to the AuditLogger job
     # and will invoke the relevant jobs in registered_jobs via the Router job.
     def install_amigo_jobs
+      require "amigo/audit_logger"
+      require "amigo/router"
       return self.register_subscriber do |ev|
         self._subscriber(ev)
       end

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "amigo"
 require "amigo/job"
 
 # Put jobs here to die. If you just remove a job in Sidekiq, it may be queued up

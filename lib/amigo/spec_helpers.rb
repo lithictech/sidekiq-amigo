@@ -2,6 +2,8 @@
 
 require "sidekiq/testing"
 
+require "amigo"
+
 class Amigo
   module SpecHelpers
     def self.included(context)

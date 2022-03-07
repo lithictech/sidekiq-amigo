@@ -2,6 +2,8 @@
 
 require "sidekiq"
 
+require "amigo"
+
 class Amigo
   module Job
     def self.extended(cls)

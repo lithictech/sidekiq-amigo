@@ -3,6 +3,8 @@
 require "timecop"
 
 require "amigo"
+require "amigo/job"
+require "amigo/scheduled_job"
 require "amigo/deprecated_jobs"
 
 RSpec.describe Amigo do

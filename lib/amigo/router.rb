@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
-require "amigo/job"
+require "sidekiq"
+
+require "amigo"
 
 class Amigo
   class Router
