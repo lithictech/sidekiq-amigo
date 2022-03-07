@@ -187,21 +187,10 @@ class Amigo
       Amigo::AuditLogger.perform_async(event_json)
       Amigo::Router.perform_async(event_json)
     end
-    #
-    # # Start the scheduler.
-    # # This should generally be run in the Sidekiq worker process,
-    # # not a webserver process.
-    # def self.start_scheduler
-    #   hash = self.scheduled_jobs.each_with_object({}) do |job, memo|
-    #     self.logger.info "Scheduling %s every %p" % [job.name, job.cron_expr]
-    #     memo[job.name] = {
-    #       "class" => job.name,
-    #       "cron" => job.cron_expr,
-    #     }
-    #   end
-    #   load_errs = Sidekiq::Cron::Job.load_from_hash hash
-    #   raise "Errors loading sidekiq-cron jobs: %p" % [load_errs] if load_errs.present?
-    # end
+
+    def register_job(job)
+      self.registered_jobs << job
+    end
   end
 
   class Event

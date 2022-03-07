@@ -7,8 +7,6 @@ require "amigo"
 class Amigo
   module Job
     def self.extended(cls)
-      Amigo.registered_jobs << cls
-
       cls.include(Sidekiq::Worker)
       cls.extend(ClassMethods)
       cls.pattern = ""

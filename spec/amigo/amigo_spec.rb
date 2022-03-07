@@ -104,43 +104,38 @@ RSpec.describe Amigo do
     end
   end
 
-  describe "job including" do
-    it "registers the includer as a job" do
+  describe "register_job" do
+    it "registers the job" do
       job = Class.new do
         extend Amigo::Job
         on "foo"
       end
 
+      expect(Amigo.registered_jobs).to_not include(job)
+      Amigo.register_job(job)
       expect(Amigo.registered_jobs).to include(job)
-    end
-  end
-
-  describe "event jobs" do
-    it "registers the pattern with the on method" do
-      job = Class.new do
-        extend Amigo::Job
-        on "foo"
-      end
-
       expect(Amigo.registered_event_jobs).to include(job)
       expect(Amigo.registered_scheduled_jobs).to_not include(job)
     end
-  end
 
-  describe "ScheduledJob" do
-    it "register scheduled work with the every method" do
+    it "register a scheduled job" do
       job = Class.new do
         extend Amigo::ScheduledJob
         cron "*/10 * * * *"
         splay 2
       end
 
+      expect(Amigo.registered_jobs).to_not include(job)
+      Amigo.register_job(job)
+      expect(Amigo.registered_jobs).to include(job)
       expect(Amigo.registered_event_jobs).to_not include(job)
       expect(Amigo.registered_scheduled_jobs).to include(job)
       expect(job.cron_expr).to eq("*/10 * * * *")
       expect(job.splay_duration).to eq(2)
     end
+  end
 
+  describe "ScheduledJob" do
     it "has a default splay of 30s" do
       job = Class.new do
         extend Amigo::ScheduledJob

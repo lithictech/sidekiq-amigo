@@ -8,8 +8,6 @@ require "amigo"
 class Amigo
   module ScheduledJob
     def self.extended(cls)
-      Amigo.registered_jobs << cls
-
       cls.include(Sidekiq::Worker)
       cls.sidekiq_options(retry: false)
       cls.extend(ClassMethods)
