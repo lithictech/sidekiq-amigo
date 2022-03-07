@@ -201,7 +201,7 @@ RSpec.describe Amigo::Job, :async, :db do
         "something that does not match the pattern" do
         expect(matcher).to_not be === {
           "password" => ["foo", "bar"],
-          "email" => ["wooley@carbuncle.net", "whimsey@lithic.tech"],
+          "email" => ["wooley@carbuncle.net", "whimsey@lithic.dev"],
         }
       end
 
