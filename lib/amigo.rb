@@ -98,6 +98,10 @@ require "sidekiq-cron"
 # Splay defaults to 30s; you may wish to always provide splay, whatever you think for your job.
 #
 class Amigo
+  class Error < StandardError; end
+
+  class StartSchedulerFailed < Error; end
+
   class << self
     attr_accessor :structured_logging
 
@@ -190,6 +194,21 @@ class Amigo
 
     def register_job(job)
       self.registered_jobs << job
+    end
+
+    # Start the scheduler.
+    # This should generally be run in the Sidekiq worker process,
+    # not a webserver process.
+    def start_scheduler(load_from_hash=Sidekiq::Cron::Job.method(:load_from_hash))
+      hash = self.registered_scheduled_jobs.each_with_object({}) do |job, memo|
+        self.log(nil, :info, "scheduling_job_cron", {job_name: job.name, job_cron: job.cron_expr})
+        memo[job.name] = {
+          "class" => job.name,
+          "cron" => job.cron_expr,
+        }
+      end
+      load_errs = load_from_hash.call(hash) || {}
+      raise StartSchedulerFailed, "Errors loading sidekiq-cron jobs: %p" % [load_errs] unless load_errs.empty?
     end
   end
 

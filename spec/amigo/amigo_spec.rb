@@ -245,4 +245,31 @@ RSpec.describe Amigo do
       )
     end
   end
+
+  describe "start_scheduler" do
+    let(:job) do
+      Class.new do
+        def self.name
+          return "Job2"
+        end
+        extend Amigo::ScheduledJob
+        cron "*/10 * * * *"
+      end
+    end
+    it "installs scheduled jobs into cron" do
+      Amigo.register_job(job)
+      called = []
+      Amigo.start_scheduler(lambda do |h|
+        called << h
+        {}
+      end)
+      expect(called).to contain_exactly(hash_including("Job2"))
+    end
+    it "errors if anything fails to register" do
+      Amigo.register_job(job)
+      expect do
+        Amigo.start_scheduler(->(_h) { {"Job2" => "went wrong"} })
+      end.to raise_error(Amigo::StartSchedulerFailed)
+    end
+  end
 end
