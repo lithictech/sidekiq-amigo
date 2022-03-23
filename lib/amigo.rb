@@ -117,7 +117,8 @@ class Amigo
     end
 
     def log(job, level, message, params)
-      if self.structured_logging
+      params ||= {}
+      if self.structured_logging && !params.empty?
         paramstr = params.map { |k, v| "#{k}=#{v}" }.join(" ")
         message = "#{message} #{paramstr}"
       end

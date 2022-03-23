@@ -32,7 +32,7 @@ class Amigo
     def self.noop_class
       cls = Class.new do
         def _perform(*)
-          Amigo.log(self, :warn, "deprecated_job_invoked", nil)
+          Amigo.log(self, :warn, "deprecated_job_invoked", {})
         end
       end
       cls.extend(Amigo::Job)

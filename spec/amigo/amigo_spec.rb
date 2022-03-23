@@ -21,6 +21,13 @@ RSpec.describe Amigo do
       Amigo.log(nil, :info, "hi", {x: 1})
       expect(publishes).to eq([[nil, :info, "hi", {x: 1}], [nil, :info, "hi x=1", {x: 1}]])
     end
+    it "can handle nil params" do
+      publishes = []
+      Amigo.log_callback = ->(*args) { publishes << args }
+      Amigo.structured_logging = true
+      Amigo.log(nil, :info, "hi", nil)
+      expect(publishes).to eq([[nil, :info, "hi", {}]])
+    end
   end
 
   describe "publish", :async do
@@ -241,7 +248,7 @@ RSpec.describe Amigo do
       Amigo.log_callback = ->(*args) { logged << args }
       Amigo::Test::DeprecatedJob.new.perform
       expect(logged).to contain_exactly(
-        [be_a(Amigo::Test::DeprecatedJob), :warn, "deprecated_job_invoked", nil],
+        [be_a(Amigo::Test::DeprecatedJob), :warn, "deprecated_job_invoked", {}],
       )
     end
   end
