@@ -107,8 +107,11 @@ class Amigo
 
     # Proc called with [job, level, message, params].
     # By default, logs to the job's logger (or Sidekiq's if job is nil).
-    # If structured_logging is true, the message will be an 'event' without any dynamic info,
-    # if false, the params will be rendered into the message so are suitable for unstructured logging.
+    # If structured_logging is true, the message will be an 'event' string (like 'registered_subscriber')
+    # without any dynamic info.
+    # If structured_logging is false, the params will be rendered into the message
+    # so are suitable for unstructured logging. Also, the params will also have an :log_message key
+    # which will contain the original log message.
     attr_accessor :log_callback
 
     def reset_logging
@@ -118,8 +121,9 @@ class Amigo
 
     def log(job, level, message, params)
       params ||= {}
-      if self.structured_logging && !params.empty?
+      if !self.structured_logging && !params.empty?
         paramstr = params.map { |k, v| "#{k}=#{v}" }.join(" ")
+        params[:log_message] = message
         message = "#{message} #{paramstr}"
       end
       self.log_callback[job, level, message, params]

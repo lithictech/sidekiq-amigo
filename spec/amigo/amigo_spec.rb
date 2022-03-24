@@ -19,7 +19,7 @@ RSpec.describe Amigo do
       Amigo.log(nil, :info, "hi", {x: 1})
       Amigo.structured_logging = true
       Amigo.log(nil, :info, "hi", {x: 1})
-      expect(publishes).to eq([[nil, :info, "hi", {x: 1}], [nil, :info, "hi x=1", {x: 1}]])
+      expect(publishes).to eq([[nil, :info, "hi x=1", {log_message: "hi", x: 1}], [nil, :info, "hi", {x: 1}]])
     end
     it "can handle nil params" do
       publishes = []
@@ -227,6 +227,7 @@ RSpec.describe Amigo do
       end
 
       logged = nil
+      Amigo.structured_logging = true
       Amigo.log_callback = ->(*args) { logged = args }
 
       expect do
