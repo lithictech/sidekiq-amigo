@@ -3,6 +3,9 @@
 require "amigo/job"
 
 RSpec.describe Amigo::Job, :async, :db do
+  before(:all) do
+    Sidekiq::Testing.inline!
+  end
   describe "lookup_model" do
     let(:job) do
       Class.new do
@@ -168,7 +171,7 @@ RSpec.describe Amigo::Job, :async, :db do
       end
 
       it "does not match if the attribute changes include first_name being set from " \
-        "something that does not match the pattern" do
+         "something that does not match the pattern" do
         expect(matcher).to_not be === {
           "password" => ["foo", "bar"],
           "first_name" => ["James", "Hodintyon"],
@@ -198,7 +201,7 @@ RSpec.describe Amigo::Job, :async, :db do
       end
 
       it "does not match if the attribute changes include email being set to " \
-        "something that does not match the pattern" do
+         "something that does not match the pattern" do
         expect(matcher).to_not be === {
           "password" => ["foo", "bar"],
           "email" => ["wooley@carbuncle.net", "whimsey@lithic.dev"],

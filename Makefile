@@ -3,9 +3,11 @@ install:
 cop:
 	bundle exec rubocop
 fix:
-	bundle exec rubocop --auto-correct-all
+	bundle exec rubocop --autocorrect-all
 fmt: fix
 
+up:
+	docker compose up -d
 test:
 	RACK_ENV=test bundle exec rspec spec/
 testf:

@@ -8,6 +8,9 @@ require "amigo/scheduled_job"
 require "amigo/deprecated_jobs"
 
 RSpec.describe Amigo do
+  before(:all) do
+    Sidekiq::Testing.inline!
+  end
   after(:each) do
     Amigo.reset_logging
   end

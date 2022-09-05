@@ -40,7 +40,7 @@ Metrics/CyclomaticComplexity:
 Layout/LineLength:
   Max: 120
   # Allow comments to be long
-  IgnoredPatterns: ['\A#']
+  AllowedPatterns: ['\A#']
 Metrics/MethodLength:
   Enabled: false
 Metrics/ModuleLength:
@@ -84,7 +84,7 @@ Style/Documentation:
 Style/FormatString:
   EnforcedStyle: percent
 Style/NumericPredicate:
-  IgnoredMethods: ['where']
+  AllowedMethods: ['where']
 Style/RedundantReturn:
   Enabled: false
 Style/RedundantSelf:
