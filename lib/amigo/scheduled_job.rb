@@ -13,6 +13,7 @@ module Amigo
       cls.extend(ClassMethods)
       cls.splay_duration = 30
       cls.include(InstanceMethods)
+      Amigo.register_job(cls)
     end
 
     module InstanceMethods
