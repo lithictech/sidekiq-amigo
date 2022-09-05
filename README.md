@@ -1,3 +1,5 @@
+[![Gem Version](https://badge.fury.io/rb/sidekiq-amigo.svg)](https://badge.fury.io/rb/sidekiq-amigo)
+
 # sidekiq-amigo
 
 Pubsub system and other enhancements around Sidekiq.
