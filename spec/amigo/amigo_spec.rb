@@ -242,27 +242,6 @@ RSpec.describe Amigo do
     end
   end
 
-  describe "audit logging", :async do
-    it "logs all events once" do
-      noop_job = Class.new do
-        extend Amigo::Job
-        def _perform(*); end
-      end
-
-      logged = nil
-      Amigo.structured_logging = true
-      Amigo.log_callback = ->(*args) { logged = args }
-
-      expect do
-        Amigo.publish("some.event", 123)
-      end.to perform_async_job(noop_job)
-      expect(logged).to match_array(
-        [be_a(Amigo::AuditLogger), :info, "async_job_audit",
-         {event_id: be_a(String), event_name: "some.event", event_payload: [123]},],
-      )
-    end
-  end
-
   describe "deprecated jobs" do
     it "exist as job classes, and noop" do
       expect(defined? Amigo::Test::DeprecatedJob).to be_falsey

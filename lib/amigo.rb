@@ -103,7 +103,7 @@ module Amigo
   class StartSchedulerFailed < Error; end
 
   class << self
-    attr_accessor :structured_logging
+    attr_accessor :structured_logging, :audit_logger_class, :router_class
 
     # Proc called with [job, level, message, params].
     # By default, logs to the job's logger (or Sidekiq's if job is nil).
@@ -184,8 +184,6 @@ module Amigo
     # Install Amigo so that every publish will be sent to the AuditLogger job
     # and will invoke the relevant jobs in registered_jobs via the Router job.
     def install_amigo_jobs
-      require "amigo/audit_logger"
-      require "amigo/router"
       return self.register_subscriber do |ev|
         self._subscriber(ev)
       end
@@ -193,8 +191,8 @@ module Amigo
 
     def _subscriber(event)
       event_json = event.as_json
-      Amigo::AuditLogger.perform_async(event_json)
-      Amigo::Router.perform_async(event_json)
+      self.audit_logger_class.perform_async(event_json)
+      self.router_class.perform_async(event_json)
     end
 
     def register_job(job)
@@ -281,3 +279,8 @@ Amigo.synchronous_mode = false
 Amigo.registered_jobs = []
 Amigo.subscribers = Set.new
 Amigo.on_publish_error = proc {}
+
+require "amigo/audit_logger"
+require "amigo/router"
+Amigo.audit_logger_class = Amigo::AuditLogger
+Amigo.router_class = Amigo::Router
