@@ -10,7 +10,7 @@ require "amigo/job"
 # So, make the class exist, but noop so it won't be scheduled and won't be retried.
 # Then it can be deleted later.
 #
-class Amigo
+module Amigo
   module DeprecatedJobs
     def self.install(const_base, *names)
       cls = self.noop_class

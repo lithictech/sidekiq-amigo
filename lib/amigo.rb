@@ -97,7 +97,7 @@ require "sidekiq-cron"
 # Splay exists to avoid a "thundering herd" issue.
 # Splay defaults to 30s; you may wish to always provide splay, whatever you think for your job.
 #
-class Amigo
+module Amigo
   class Error < StandardError; end
 
   class StartSchedulerFailed < Error; end

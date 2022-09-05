@@ -4,7 +4,7 @@ require "sidekiq"
 
 require "amigo"
 
-class Amigo
+module Amigo
   class Router
     include Sidekiq::Worker
 

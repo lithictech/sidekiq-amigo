@@ -2,7 +2,7 @@
 
 require "amigo"
 
-class Amigo
+module Amigo
   class AuditLogger
     include Sidekiq::Worker
 

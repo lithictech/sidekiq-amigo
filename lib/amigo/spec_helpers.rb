@@ -2,7 +2,7 @@
 
 require "amigo"
 
-class Amigo
+module Amigo
   module SpecHelpers
     def self.included(context)
       context.before(:each) do |example|

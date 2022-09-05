@@ -5,7 +5,7 @@ require "sidekiq-cron"
 
 require "amigo"
 
-class Amigo
+module Amigo
   module ScheduledJob
     def self.extended(cls)
       cls.include(Sidekiq::Worker)

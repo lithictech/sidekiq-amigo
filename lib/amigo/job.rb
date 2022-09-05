@@ -4,7 +4,7 @@ require "sidekiq"
 
 require "amigo"
 
-class Amigo
+module Amigo
   module Job
     def self.extended(cls)
       cls.include(Sidekiq::Worker)
