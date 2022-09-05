@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "amigo"
+require "sidekiq/worker"
 
 module Amigo
   module SpecHelpers
@@ -228,6 +229,74 @@ module Amigo
 
     def perform_async_job(job)
       return PerformAsyncJobMatcher.new(job)
+    end
+
+    # Like a Sidekiq worker's perform_inline,
+    # but allows an arbitrary item to be used, rather than just the
+    # given class and args. For example, when testing,
+    # you may need to assume something like 'retry_count' is in the job payload,
+    # but that can't be included with perform_inline.
+    # This allows those arbitrary job payload fields
+    # to be included when the job is run.
+    module_function def sidekiq_perform_inline(klass, args, item=nil)
+      Sidekiq::Worker::Setter.override_item = item
+      begin
+        klass.perform_inline(*args)
+      ensure
+        Sidekiq::Worker::Setter.override_item = nil
+      end
+    end
+
+    module_function def drain_sidekiq_jobs(q)
+      all_sidekiq_jobs(q).each do |job|
+        klass = job.item.fetch("class")
+        klass = Sidekiq::Testing.constantize(klass) if klass.is_a?(String)
+        sidekiq_perform_inline(klass, job.item["args"], job.item)
+        job.delete
+      end
+    end
+
+    module_function def all_sidekiq_jobs(q)
+      arr = []
+      q.each { |j| arr << j }
+      return arr
+    end
+
+    # Use this middleware to pass an arbitrary callback evaluated before a job runs.
+    # Make sure to call +reset+ after the test.
+    class ServerCallbackMiddleware
+      class << self
+        attr_accessor :callback
+      end
+
+      def self.reset
+        self.callback = nil
+        return self
+      end
+
+      def self.new
+        return self
+      end
+
+      def self.call(worker, job, queue)
+        self.callback[worker, job, queue] if self.callback
+        yield
+      end
+    end
+  end
+end
+
+module ::Sidekiq
+  module Worker
+    class Setter
+      class << self
+        attr_accessor :override_item
+      end
+      def normalize_item(item)
+        result = super
+        result.merge!(self.class.override_item || {})
+        return result
+      end
     end
   end
 end
