@@ -199,6 +199,7 @@ module Amigo
 
     def register_job(job)
       self.registered_jobs << job
+      self.registered_jobs.uniq!
     end
 
     # Start the scheduler.

@@ -11,6 +11,7 @@ module Amigo
       cls.extend(ClassMethods)
       cls.pattern = ""
       cls.include(InstanceMethods)
+      Amigo.register_job(cls)
     end
 
     module InstanceMethods
