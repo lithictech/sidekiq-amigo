@@ -217,6 +217,14 @@ module Amigo
   end
 
   class Event
+    # @param topic [String]
+    # @param payload [Array]
+    # @return [Webhookdb::Event]
+    def self.create(topic, payload)
+      return self.new(SecureRandom.uuid, topic, payload)
+    end
+
+    # @return [Webhookdb::Event]
     def self.from_json(o)
       return self.new(o["id"], o["name"], o["payload"])
     end
@@ -252,24 +260,10 @@ module Amigo
     end
 
     protected def safe_stringify(o)
-      return self.deep_stringify_keys(o) if o.is_a?(Hash)
+      return o.utc.strftime("%Y-%m-%dT%H:%M:%S.%LZ") if o.is_a?(Time)
+      return o.each_with_object({}) { |(k, v), m| m[k.to_s] = safe_stringify(v) } if o.is_a?(Hash)
+      return o.map { |x| safe_stringify(x) } if o.is_a?(Array)
       return o
-    end
-
-    def deep_stringify_keys(hash)
-      stringified_hash = {}
-      hash.each do |k, v|
-        stringified_hash[k.to_s] =
-          case v
-            when Hash
-              self.deep_stringify_keys(v)
-            when Array
-              v.map { |i| i.is_a?(Hash) ? self.deep_stringify_keys(i) : i }
-          else
-              v
-          end
-      end
-      stringified_hash
     end
   end
 end

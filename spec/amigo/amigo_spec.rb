@@ -45,6 +45,24 @@ RSpec.describe Amigo do
         described_class.publish("some-event", key: {subkey: "subvalue"})
       end.to publish("some-event").with_payload([{"key" => {"subkey" => "subvalue"}}])
     end
+
+    it "converts all payload values into JSON native types" do
+      t = Time.new(2020, 10, 20, 12, 0, 5.2, TZInfo::Timezone.get("America/Los_Angeles"))
+
+      expect do
+        described_class.publish(
+          "some-event", "arg1", 5, {key: {subkey: "subvalue", t: t}}, t, [5, {t: t}],
+        )
+      end.to publish("some-event").with_payload(
+        [
+          "arg1",
+          5,
+          {"key" => {"subkey" => "subvalue", "t" => "2020-10-20T19:00:05.200Z"}},
+          "2020-10-20T19:00:05.200Z",
+          [5, {"t" => "2020-10-20T19:00:05.200Z"}],
+        ],
+      )
+    end
   end
 
   describe "subscribers" do
