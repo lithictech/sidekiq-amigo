@@ -3,6 +3,9 @@
 require "amigo/job"
 
 RSpec.describe Amigo::Job, :async, :db do
+  before(:all) do
+    Sidekiq::Testing.inline!
+  end
   describe "lookup_model" do
     let(:job) do
       Class.new do

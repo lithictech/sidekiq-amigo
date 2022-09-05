@@ -8,10 +8,8 @@ require "rspec/support/object_formatter"
 require "sidekiq/testing"
 require "amigo/spec_helpers"
 
-Sidekiq::Testing.inline!
-
 RSpec.configure do |config|
-  # config.full_backtrace = true
+  config.full_backtrace = true
 
   RSpec::Support::ObjectFormatter.default_instance.max_formatted_output_length = 600
 
@@ -31,4 +29,19 @@ RSpec.configure do |config|
   config.disable_monkey_patching!
   config.default_formatter = "doc" if config.files_to_run.one?
   config.include(Amigo::SpecHelpers)
+
+  Sidekiq.configure_server do |sdkqcfg|
+    sdkqcfg.redis = {url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:22379/0")}
+  end
+  Sidekiq.configure_client do |sdkqcfg|
+    sdkqcfg.redis = {url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:22379/0")}
+  end
+end
+
+# See https://github.com/mperham/sidekiq/issues/5510
+# Once it's fixed we can remove.
+class String
+  def constantize
+    return Sidekiq::Testing.constantize(self)
+  end
 end
