@@ -36,6 +36,17 @@ RSpec.configure do |config|
   Sidekiq.configure_client do |sdkqcfg|
     sdkqcfg.redis = {url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:22379/0")}
   end
+
+  config.before(:all) do
+    Sidekiq::Testing.inline!
+  end
+  config.before(:each) do
+    Amigo.on_publish_error = nil
+    Amigo.subscribers.clear
+  end
+  config.after(:each) do
+    Amigo.reset_logging
+  end
 end
 
 # See https://github.com/mperham/sidekiq/issues/5510

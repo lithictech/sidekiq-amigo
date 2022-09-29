@@ -9,17 +9,6 @@ require "amigo/deprecated_jobs"
 require_relative "helpers"
 
 RSpec.describe Amigo do
-  before(:all) do
-    Sidekiq::Testing.inline!
-  end
-  before(:each) do
-    Amigo.on_publish_error = nil
-    Amigo.subscribers.clear
-  end
-  after(:each) do
-    Amigo.reset_logging
-  end
-
   describe "log" do
     it "respects structured logging" do
       publishes = []
