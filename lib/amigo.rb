@@ -208,7 +208,15 @@ module Amigo
 
     def _subscriber(event)
       event_json = event.as_json
-      self.audit_logger_class.perform_async(event_json)
+      begin
+        self.audit_logger_class.perform_async(event_json)
+      rescue StandardError => e
+        # If the audit logger cannot perform, let's say because Redis is down,
+        # we can run the job manually. This is pretty important for anything used for auditing;
+        # it should be as resilient as possible.
+        self.log(nil, :error, "amigo_audit_log_subscriber_error", error: e, event: event_json)
+        self.audit_logger_class.new.perform(event_json)
+      end
       self.router_class.perform_async(event_json)
     end
 
