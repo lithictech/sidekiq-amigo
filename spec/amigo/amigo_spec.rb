@@ -6,10 +6,15 @@ require "amigo"
 require "amigo/job"
 require "amigo/scheduled_job"
 require "amigo/deprecated_jobs"
+require_relative "helpers"
 
 RSpec.describe Amigo do
   before(:all) do
     Sidekiq::Testing.inline!
+  end
+  before(:each) do
+    Amigo.on_publish_error = nil
+    Amigo.subscribers.clear
   end
   after(:each) do
     Amigo.reset_logging
@@ -62,6 +67,73 @@ RSpec.describe Amigo do
           [5, {"t" => "2020-10-20T19:00:05.200Z"}],
         ],
       )
+    end
+
+    describe "with a subscriber error" do
+      let(:spy) { Amigo::Test::Spy.new }
+      let(:ex) { RuntimeError.new("hello") }
+
+      before(:each) do
+        described_class.subscribers.clear
+      end
+
+      it "calls on_publish_error (arity 1) with the exception on a publish error" do
+        described_class.on_publish_error = ->(ex) { spy.call(ex) }
+        described_class.register_subscriber { raise ex }
+        expect(Amigo).to receive(:log).with(
+          nil, :error, "amigo_subscriber_hook_error", hash_including(error: ex, hook: be_a(Proc), event: be_a(Hash)),
+        )
+        described_class.publish("hi")
+        expect(spy.calls).to contain_exactly([ex])
+      end
+
+      it "calls on_publish_error (arity > 1) with the exception, event, and hook on a subscriber error" do
+        described_class.on_publish_error = ->(ex, ev, h) { spy.call(ex, ev, h) }
+        described_class.register_subscriber { raise ex }
+        described_class.publish("hi")
+        expect(spy.calls).to contain_exactly([ex, be_a(Amigo::Event), be_a(Proc)])
+      end
+
+      it "calls on_publish_error (unknown arity) with the exception, event, and hook on a publish error" do
+        described_class.on_publish_error = ->(*a) { spy.call(*a) }
+        described_class.register_subscriber { raise ex }
+        described_class.publish("hi")
+        expect(spy.calls).to contain_exactly([ex, be_a(Amigo::Event), be_a(Proc)])
+      end
+
+      it "calls on_publish_error for each failing subscriber" do
+        other_spy = Amigo::Test::Spy.new
+        described_class.on_publish_error = ->(ex, ev, h) { spy.call(ex, ev, h) }
+        described_class.register_subscriber { raise "hi" }
+        described_class.register_subscriber { other_spy.call }
+        described_class.register_subscriber { raise "bye" }
+        described_class.publish("testevent")
+        expect(spy.calls).to contain_exactly(
+          [have_attributes(message: "hi"), be_a(Amigo::Event), be_a(Proc)],
+          [have_attributes(message: "bye"), be_a(Amigo::Event), be_a(Proc)],
+        )
+        expect(other_spy.calls).to have_attributes(length: 1)
+      end
+
+      it "raises the exception immediately if on_publish_error is not set" do
+        other_spy = Amigo::Test::Spy.new
+        described_class.register_subscriber { raise ex }
+        described_class.register_subscriber { other_spy.call }
+        described_class.on_publish_error = nil
+        expect do
+          described_class.publish("hi")
+        end.to raise_error(ex)
+        expect(other_spy.calls).to be_empty
+      end
+
+      it "raises the exception immediately if on_publish_error errors" do
+        described_class.register_subscriber { raise "ex1" }
+        described_class.register_subscriber { raise "ex2" }
+        described_class.on_publish_error = ->(*) { raise "xyz" }
+        expect do
+          described_class.publish("hi")
+        end.to raise_error(/xyz/)
+      end
     end
   end
 
