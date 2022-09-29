@@ -140,7 +140,18 @@ module Amigo
     # An Array of callbacks to be run when an event is published.
     attr_accessor :subscribers
 
-    # A single callback to be run when an event publication errors.
+    # A single callback to be run when an event publication errors,
+    # almost always due to an error in a subscriber.
+    #
+    # The callback receives the exception, the event being published, and the erroring subscriber.
+    #
+    # If this is not set, errors from subscribers will be re-raised immediately,
+    # since broken subscribers usually indicate a broken application.
+    #
+    # Note also that when an error occurs, Amigo.log is always called first.
+    # You do NOT need a callback that just logs and swallows the error.
+    # If all you want to do is log, and not propogate the error,
+    # you can use `Amigo.on_publish_error = proc {}`.
     attr_accessor :on_publish_error
 
     # Publish an event with the specified +eventname+ and +payload+
@@ -151,12 +162,18 @@ module Amigo
       self.subscribers.to_a.each do |hook|
         hook.call(ev)
       rescue StandardError => e
-        self.log(nil, :error, "amigo_subscriber_hook_error", error: e, hook: hook, event: ev)
-        self.on_publish_error.call(e)
+        self.log(nil, :error, "amigo_subscriber_hook_error", error: e, hook: hook, event: ev&.as_json)
+        raise e if self.on_publish_error.nil?
+        if self.on_publish_error.respond_to?(:arity) && self.on_publish_error.arity == 1
+          self.on_publish_error.call(e)
+        else
+          self.on_publish_error.call(e, ev, hook)
+        end
       end
     end
 
     # Register a hook to be called when an event is sent.
+    # If a subscriber errors, on_publish_error is called with the exception, event, and subscriber.
     def register_subscriber(&block)
       raise LocalJumpError, "no block given" unless block
       self.log nil, :info, "amigo_installed_subscriber", block: block
@@ -191,7 +208,15 @@ module Amigo
 
     def _subscriber(event)
       event_json = event.as_json
-      self.audit_logger_class.perform_async(event_json)
+      begin
+        self.audit_logger_class.perform_async(event_json)
+      rescue StandardError => e
+        # If the audit logger cannot perform, let's say because Redis is down,
+        # we can run the job manually. This is pretty important for anything used for auditing;
+        # it should be as resilient as possible.
+        self.log(nil, :error, "amigo_audit_log_subscriber_error", error: e, event: event_json)
+        self.audit_logger_class.new.perform(event_json)
+      end
       self.router_class.perform_async(event_json)
     end
 
@@ -272,7 +297,6 @@ Amigo.reset_logging
 Amigo.synchronous_mode = false
 Amigo.registered_jobs = []
 Amigo.subscribers = Set.new
-Amigo.on_publish_error = proc {}
 
 require "amigo/audit_logger"
 require "amigo/router"
