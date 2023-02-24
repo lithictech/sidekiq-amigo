@@ -1,3 +1,5 @@
+VERSION := `cat lib/amigo/version.rb | grep 'VERSION =' | cut -d '"' -f2`
+
 install:
 	bundle install
 cop:
@@ -14,5 +16,12 @@ testf:
 	RACK_ENV=test bundle exec rspec spec/ --fail-fast --seed=1
 
 build:
+ifeq ($(strip $(VERSION)),)
+	echo "Could not parse VERSION"
+else
+	git tag $(VERSION)
 	gem build sidekiq-amigo.gemspec
-	# gem push sidekiq-amigo-x.y.z.gem
+	gem push sidekiq-amigo-$(VERSION).gem
+	git push origin $(VERSION)
+endif
+

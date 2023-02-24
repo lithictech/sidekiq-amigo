@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "sidekiq"
+require "sidekiq/api"
 
 # Middleware so Sidekiq workers can use a custom retry logic.
 # See +Amigo::Retry::Retry+, +Amigo::Retry::Die+,
@@ -64,11 +65,15 @@ module Amigo
 
       def handle_retry(worker, job, e)
         Sidekiq.logger.info("scheduling_retry")
+        job["error_class"] = e.class.to_s
+        job["error_message"] = e.to_s
         self.amigo_retry_in(worker.class, job, e.interval_or_timestamp)
       end
 
-      def handle_die(_worker, job, _e)
+      def handle_die(_worker, job, e)
         Sidekiq.logger.warn("sending_to_deadset")
+        job["error_class"] = e.class.to_s
+        job["error_message"] = e.to_s
         payload = Sidekiq.dump_json(job)
         Sidekiq::DeadSet.new.kill(payload, notify_failure: false)
       end
