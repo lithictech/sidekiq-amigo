@@ -37,7 +37,7 @@ RSpec.describe Amigo::Retry do
   end
 
   it "catches retry exceptions and reschedules with the given interval" do
-    kls = create_job_class(ex: Amigo::Retry::Retry.new(30))
+    kls = create_job_class(ex: Amigo::Retry::Retry.new(30, "trying"))
     kls.perform_async(1)
 
     expect(all_sidekiq_jobs(Sidekiq::Queue.new)).to have_attributes(length: 1)
@@ -56,7 +56,7 @@ RSpec.describe Amigo::Retry do
     expect(sched2).to have_attributes(length: 1)
     expect(sched2.first).to have_attributes(
       score: be_within(5).of(Time.now.to_f + 30),
-      item: include("retry_count" => 2),
+      item: include("retry_count" => 2, "error_class" => "Amigo::Retry::Retry", "error_message" => "trying"),
     )
   end
 
@@ -77,7 +77,7 @@ RSpec.describe Amigo::Retry do
   end
 
   it "catches die exceptions and sends to the dead set" do
-    kls = create_job_class(ex: Amigo::Retry::Die.new)
+    kls = create_job_class(ex: Amigo::Retry::Die.new("im dead"))
     kls.perform_async(1)
 
     drain_sidekiq_jobs(Sidekiq::Queue.new)
@@ -86,7 +86,11 @@ RSpec.describe Amigo::Retry do
     expect(all_sidekiq_jobs(Sidekiq::ScheduledSet.new)).to be_empty
     dead = all_sidekiq_jobs(Sidekiq::DeadSet.new)
     expect(dead).to have_attributes(length: 1)
-    expect(dead.first).to have_attributes(klass: kls.name, args: [1])
+    expect(dead.first).to have_attributes(
+      klass: kls.name,
+      args: [1],
+      item: include("error_class" => "Amigo::Retry::Die", "error_message" => "im dead"),
+    )
   end
 
   it "can conditionally retry or die depending on the retry count" do
