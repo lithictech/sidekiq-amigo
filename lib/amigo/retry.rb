@@ -52,6 +52,12 @@ module Amigo
       end
     end
 
+    # Raise this error to finish the job. Usually used when there is a fatal error
+    # from deep in a job and they want to jump out of the whole thing.
+    # Usually you should log before raising this!
+    class Quit < Error
+    end
+
     class ServerMiddleware
       def call(worker, job, _queue)
         yield
@@ -61,6 +67,9 @@ module Amigo
         handle_die(worker, job, e)
       rescue Amigo::Retry::OrDie => e
         handle_retry_or_die(worker, job, e)
+      rescue Amigo::Retry::Quit
+        Sidekiq.logger.info("job_quit")
+        return
       end
 
       def handle_retry(worker, job, e)

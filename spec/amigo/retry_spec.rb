@@ -106,4 +106,14 @@ RSpec.describe Amigo::Retry do
     drain_sidekiq_jobs(Sidekiq::ScheduledSet.new) # the third retry moves to the dead set
     expect(all_sidekiq_jobs(Sidekiq::DeadSet.new)).to have_attributes(length: 1)
   end
+
+  it "catches quit exceptions and ends the job" do
+    kls = create_job_class(ex: Amigo::Retry::Quit.new("gone"))
+    kls.perform_async(1)
+
+    drain_sidekiq_jobs(Sidekiq::Queue.new)
+
+    expect(all_sidekiq_jobs(Sidekiq::ScheduledSet.new)).to be_empty
+    expect(all_sidekiq_jobs(Sidekiq::DeadSet.new)).to be_empty
+  end
 end
