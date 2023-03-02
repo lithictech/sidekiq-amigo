@@ -191,6 +191,22 @@ RSpec.describe Amigo do
       end.to perform_async_job(job)
       expect(job.result).to be_nil
     end
+
+    it "runs jobs with a regular expression pattern matching a publish event" do
+      job.pattern = /foo\.bar\.created$/
+      expect do
+        Amigo.publish("foo.bar.created", 123)
+      end.to perform_async_job(job)
+      expect(job.result).to have_attributes(payload: [123], name: "foo.bar.created", id: be_a(String))
+    end
+
+    it "does not perform work for published events not matching the regular expression pattern" do
+      job.pattern = /foo\.bar\.subresource$/
+      expect do
+        Amigo.publish("foo.bar.subresource.created", 123)
+      end.to perform_async_job(job)
+      expect(job.result).to be_nil
+    end
   end
 
   describe "register_job" do
