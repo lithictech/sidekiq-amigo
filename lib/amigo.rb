@@ -57,9 +57,8 @@ require "sidekiq-cron"
 # The 'on' pattern can be 'myapp.customer.*' to match all customer events for example,
 # or '*' to match all events. The rules of matching follow File.fnmatch.
 #
-# The 'on' pattern accepts regular expressions '/myapp\.customer\.created&/' to only match specific
-# events like created. This allows 'myapp.customer.created' event name to be handled differently from
-# 'myapp.customer.subresource.created'. The rules of matching follow Regexp#match method.
+# The 'on' pattern also accepts regular expressions, like /^myapp\.customer\.[a-z]+$/,
+# to control the matching rules more closely than File.fnmatch can provide.
 #
 # Jobs must implement a `_perform` method, which takes a Amigo::Event.
 # Note that normal Sidekiq workers use a 'perform' method that takes a variable number of arguments;
