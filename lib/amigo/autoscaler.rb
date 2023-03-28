@@ -109,7 +109,7 @@ module Amigo
 
     def check
       now = Time.now
-      skip_check = now < (@last_alerted + self.poll_interval)
+      skip_check = now < (@last_alerted + self.alert_interval)
       if skip_check
         self.log(:debug, "async_autoscaler_skip_check")
         return

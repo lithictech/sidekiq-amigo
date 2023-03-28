@@ -80,7 +80,7 @@ RSpec.describe Amigo::Autoscaler do
         twice.
         and_return([fake_q("x", 1), fake_q("y", 20)])
       now = Time.now
-      o = instance(poll_interval: 120)
+      o = instance(alert_interval: 120)
       o.setup
       expect(o).to receive(:alert_test).twice
       Timecop.freeze(now) { o.check }
