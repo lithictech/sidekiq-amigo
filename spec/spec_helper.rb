@@ -6,6 +6,7 @@
 require "rspec"
 require "rspec/support/object_formatter"
 require "sidekiq/testing"
+require "webmock/rspec"
 require "amigo/spec_helpers"
 
 RSpec.configure do |config|

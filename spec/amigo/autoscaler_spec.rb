@@ -3,6 +3,7 @@
 require "timecop"
 
 require "amigo/autoscaler"
+require "amigo/autoscaler/heroku"
 
 RSpec.describe Amigo::Autoscaler do
   def instance(**kw)
@@ -267,6 +268,146 @@ RSpec.describe Amigo::Autoscaler do
       expect(Amigo.log_callback).to receive(:[]).
         with(nil, :info, "high_latency_queues_restored", {depth: 2, duration: 10.5})
       instance.alert_restored_log(depth: 2, duration: 10.5)
+    end
+  end
+
+  describe "Heroku" do
+    let(:heroku) { PlatformAPI.connect_oauth("abc") }
+    let(:appname) { "sushi" }
+    let(:autoscaler) { new_autoscaler }
+
+    def new_autoscaler
+      h = Amigo::Autoscaler::Heroku.new(heroku: heroku, app_id_or_app_name: appname)
+      return instance(handlers: [h.alert_callback], latency_restored_handlers: [h.restored_callback], alert_interval: 0)
+    end
+
+    def resp(body)
+      return {status: 200, body: body.to_json, headers: {"content-type" => "application/json"}}
+    end
+
+    it "adds workers and restores initial workers on scale down" do
+      reqinfo = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
+        to_return(resp({quantity: 1}))
+      requp = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":2}").
+        to_return(resp({}))
+      reqdown = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":1}").
+        to_return(resp({}))
+
+      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)], [fake_q("y", 0)])
+      autoscaler.setup
+      autoscaler.check
+      autoscaler.check
+      expect(reqinfo).to have_been_made
+      expect(requp).to have_been_made
+      expect(reqdown).to have_been_made
+    end
+
+    it "does not scale if initial workers are 0" do
+      reqinfo = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
+        to_return(resp({quantity: 0}))
+
+      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)], [fake_q("y", 0)])
+      autoscaler.setup
+      autoscaler.check
+      autoscaler.check
+      expect(reqinfo).to have_been_made
+    end
+
+    it "does not add more than max additional workers" do
+      reqinfo = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
+        to_return(resp({quantity: 1}))
+      requp1 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":2}").
+        to_return(resp({}))
+      requp2 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":3}").
+        to_return(resp({}))
+      reqdown = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":1}").
+        to_return(resp({}))
+
+      expect(Sidekiq::Queue).to receive(:all).and_return(
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 0)],
+      )
+      autoscaler.setup
+      autoscaler.check
+      autoscaler.check
+      autoscaler.check
+      autoscaler.check
+      autoscaler.check
+      expect(reqinfo).to have_been_made
+      expect(requp1).to have_been_made
+      expect(requp2).to have_been_made
+      expect(reqdown).to have_been_made
+    end
+
+    it "persists information about an ongoing latency event between instances" do
+      reqinfo = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
+        to_return(resp({quantity: 1}))
+      requp1 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":2}").
+        to_return(resp({}))
+      requp2 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":3}").
+        to_return(resp({}))
+      reqdown = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":1}").
+        to_return(resp({}))
+
+      expect(Sidekiq::Queue).to receive(:all).and_return(
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 0)],
+      )
+      autoscaler1 = new_autoscaler
+      autoscaler1.setup
+      autoscaler1.check
+      autoscaler1.check
+      autoscaler1.check
+
+      autoscaler2 = new_autoscaler
+      autoscaler2.setup
+      autoscaler2.check
+      autoscaler2.check
+      expect(reqinfo).to have_been_made
+      expect(requp1).to have_been_made
+      expect(requp2).to have_been_made
+      expect(reqdown).to have_been_made
+    end
+
+    it "works for multiple latency events" do
+      reqinfo1 = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
+        to_return(resp({quantity: 1}), resp({quantity: 1}))
+      requp1 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":2}").
+        to_return(resp({}), resp({}))
+      reqdown1 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
+        with(body: "{\"quantity\":1}").
+        to_return(resp({}), resp({}))
+
+      expect(Sidekiq::Queue).to receive(:all).and_return(
+        [fake_q("y", 20)],
+        [fake_q("y", 0)],
+        [fake_q("y", 20)],
+        [fake_q("y", 0)],
+      )
+      autoscaler.setup
+      autoscaler.check
+      autoscaler.check
+      autoscaler.check
+      autoscaler.check
+
+      expect(reqinfo1).to have_been_made.times(2)
+      expect(requp1).to have_been_made.times(2)
+      expect(reqdown1).to have_been_made.times(2)
     end
   end
 end
