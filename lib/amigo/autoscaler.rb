@@ -6,20 +6,31 @@ require "amigo"
 
 # When queues achieve a latency that is too high,
 # take some action.
-# You should start this up at Sidekiq application startup:
+# You should start this up at Web application startup:
 #
-# # sidekiq.rb
-# Amigo::Autoscaler.new.start
+#   # puma.rb or similar
+#   Amigo::Autoscaler.new.start
 #
-# Right now, this is pretty simple- we alert any time
-# there is a latency over a threshold.
+# When latency grows beyond +latency_threshold+,
+# a "high latency event" is started.
+# Some action is taken, which is defined by the +handlers+ argument.
+# This includes logging, alerting, and/or autoscaling.
 #
-# In the future, we can:
+# When latency returns to normal (defined by +latency_restored_threshold+),
+# the high latency event finishes.
+# Some additional action is taken, which is defined by the +latency_restored_handlers+ argument.
+# Usually this is logging, and/or returning autoscaling to its original status.
 #
-# 1) actually autoscale rather than just alert
-#    (this may take the form of a POST to a configurable endpoint),
-# 2) become more sophisticated with how we detect latency growth.
+# There are several parameters to control behavior, such as how often polling is done,
+# how often alerting/scaling is done, and more.
 #
+# As an example autoscaler that includes actual resource scaling,
+# check out +Amigo::Autoscaler::Heroku+.
+# Its ideas can easily be expanded to other platforms.
+#
+# Note that +Autoscaler+ maintains its state over multiple processes;
+# it needs to keep track of high latency events even if the process running the autoscaler
+# (usually a web process) restarts.
 module Amigo
   class Autoscaler
     class InvalidHandler < StandardError; end
@@ -113,9 +124,24 @@ module Amigo
       # It gets extremely hard ot test if we capture the method here.
       @alert_methods = self.handlers.map { |a| _handler_to_method("alert_", a) }
       @restored_methods = self.latency_restored_handlers.map { |a| _handler_to_method("alert_restored_", a) }
-      @last_alerted = Time.at(0)
       @stop = false
-      @depth = 0
+      Sidekiq.redis do |r|
+        @last_alerted = Time.at((r.get("#{namespace}/last_alerted") || 0).to_f)
+        @depth = (r.get("#{namespace}/depth") || 0).to_i
+        @latency_event_started = Time.at((r.get("#{namespace}/latency_event_started") || 0).to_f)
+      end
+    end
+
+    private def persist
+      Sidekiq.redis do |r|
+        r.set("#{namespace}/last_alerted", @last_alerted.to_f.to_s)
+        r.set("#{namespace}/depth", @depth.to_s)
+        r.set("#{namespace}/latency_event_started", @latency_event_started.to_f.to_s)
+      end
+    end
+
+    protected def namespace
+      return "amigo/autoscaler"
     end
 
     private def _handler_to_method(prefix, a)
@@ -168,6 +194,9 @@ module Amigo
         end
         # Reset back to 0 depth so we know we're not in a latency event.
         @depth = 0
+        @latency_event_started = Time.at(0)
+        @last_alerted = now
+        self.persist
         return
       end
       if @depth.positive?
@@ -191,6 +220,7 @@ module Amigo
         end
       end
       @last_alerted = now
+      self.persist
     end
 
     def alert_sentry(names_and_latencies)

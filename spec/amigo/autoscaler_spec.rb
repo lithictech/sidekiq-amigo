@@ -9,8 +9,9 @@ RSpec.describe Amigo::Autoscaler do
     described_class.new(poll_interval: 0, handlers: ["test"], **kw)
   end
 
-  before(:all) do
-    Sidekiq::Testing.inline!
+  before(:each) do
+    Sidekiq::Testing.disable!
+    Sidekiq.redis(&:flushdb)
     @dyno = ENV.fetch("DYNO", nil)
   end
 
@@ -165,6 +166,43 @@ RSpec.describe Amigo::Autoscaler do
       o.check
       o.check
       o.check
+    end
+
+    it "persists across instances" do
+      expect(Sidekiq::Queue).to receive(:all).and_return(
+        [fake_q("y", 20)],
+        [fake_q("y", 20)],
+        [fake_q("y", 1)],
+        [fake_q("y", 20)],
+      )
+      t = Time.at(100)
+      Timecop.freeze(t) do
+        o1 = instance(alert_interval: 0)
+        expect(o1).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+        o1.setup
+        o1.check
+      end
+
+      Timecop.freeze(t + 10) do
+        o2 = instance(alert_interval: 0)
+        expect(o2).to receive(:alert_test).with({"y" => 20}, duration: 10, depth: 2)
+        o2.setup
+        o2.check
+      end
+
+      Timecop.freeze(t + 20) do
+        o3 = instance(alert_interval: 0)
+        expect(o3).to receive(:alert_restored_log).with(duration: 20, depth: 2)
+        o3.setup
+        o3.check
+      end
+
+      Timecop.freeze(t + 30) do
+        o4 = instance(alert_interval: 0)
+        expect(o4).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+        o4.setup
+        o4.check
+      end
     end
   end
 
