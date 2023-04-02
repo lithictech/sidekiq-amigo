@@ -88,7 +88,7 @@ module Amigo
         @formation_id_or_formation_type = formation_id_or_formation_type
         @active_event_initial_workers = Sidekiq.redis do |r|
           v = r.get("#{namespace}/active_event_initial_workers")
-          v ? v.to_i : nil
+          v&.to_i
         end
       end
 
