@@ -86,6 +86,8 @@ module Amigo
         @max_additional_workers = max_additional_workers
         @app_id_or_app_name = app_id_or_app_name
         @formation_id_or_formation_type = formation_id_or_formation_type
+        # Is nil outside of a latency event, set during a latency event. So if this is initialized to non-nil,
+        # we're already in a latency event.
         @active_event_initial_workers = Sidekiq.redis do |r|
           v = r.get("#{namespace}/active_event_initial_workers")
           v&.to_i
@@ -108,17 +110,18 @@ module Amigo
       # @return [:noscale, :maxscale, :scaled] One of :noscale (no +active_event_initial_workers+),
       #   :maxscale (+max_additional_workers+ reached), or :scaled.
       def scale_up(_queues_and_latencies, depth:, **)
-        return :noscale if @active_event_initial_workers&.zero?
-        if depth == 1
-          # If this is the first alert, store how many workers we have. We need to store it in redis
-          # so it persists if the latency event surpasses restarts.
+        # When the scaling event starts (or if this is the first time we've seen it
+        # but the event is already in progress), store how many workers we have.
+        # It needs to be stored in redis so it persists if
+        # the latency event continues through restarts.
+        if @active_event_initial_workers.nil?
           @active_event_initial_workers = @heroku.formation.info(@app_id_or_app_name, @formation_id_or_formation_type).
             fetch("quantity")
           Sidekiq.redis do |r|
             r.set("#{namespace}/active_event_initial_workers", @active_event_initial_workers.to_s)
           end
-          return :noscale if @active_event_initial_workers.zero?
         end
+        return :noscale if @active_event_initial_workers.zero?
         new_quantity = @active_event_initial_workers + depth
         max_quantity = @active_event_initial_workers + @max_additional_workers
         return :maxscale if new_quantity > max_quantity
@@ -129,9 +132,13 @@ module Amigo
       # Reset the formation to +active_event_initial_workers+.
       # @return [:noscale, :scaled] :noscale if +active_event_initial_workers+ is 0, otherwise :scaled.
       def scale_down(**)
-        return :noscale if @active_event_initial_workers.zero?
-        @heroku.formation.update(@app_id_or_app_name, @formation_id_or_formation_type,
-                                 {quantity: @active_event_initial_workers},)
+        initial_workers = @active_event_initial_workers
+        Sidekiq.redis do |r|
+          r.del("#{namespace}/active_event_initial_workers")
+        end
+        @active_event_initial_workers = nil
+        return :noscale if initial_workers.zero?
+        @heroku.formation.update(@app_id_or_app_name, @formation_id_or_formation_type, {quantity: initial_workers})
         return :scaled
       end
     end

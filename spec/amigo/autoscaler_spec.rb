@@ -312,10 +312,12 @@ RSpec.describe Amigo::Autoscaler do
       expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)], [fake_q("y", 0)])
       autoscaler.setup
       autoscaler.check
+      expect(Sidekiq.redis { |r| r.get("amigo/autoscaler/heroku/active_event_initial_workers") }).to eq("1")
       autoscaler.check
       expect(reqinfo).to have_been_made
       expect(requp).to have_been_made
       expect(reqdown).to have_been_made
+      expect(Sidekiq.redis(&:keys)).to_not include("amigo/autoscaler/heroku/active_event_initial_workers")
     end
 
     it "does not scale if initial workers are 0" do
