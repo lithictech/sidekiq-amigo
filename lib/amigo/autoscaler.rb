@@ -89,6 +89,9 @@ module Amigo
     #   like via `**kw`, for compatibility.
     # @return [Array<String,Symbol,Proc,#call>]
     attr_reader :latency_restored_handlers
+    # Proc/callable called with (level, message, params={}).
+    # By default, use +Amigo.log+ (which logs to the Sidekiq logger).
+    attr_reader :log
 
     def initialize(
       poll_interval: 20,
@@ -97,7 +100,8 @@ module Amigo
       handlers: [:log],
       alert_interval: 120,
       latency_restored_threshold: latency_threshold,
-      latency_restored_handlers: [:log]
+      latency_restored_handlers: [:log],
+      log: ->(level, message, params={}) { Amigo.log(nil, level, message, params) }
     )
 
       raise ArgumentError, "latency_threshold must be > 0" if
@@ -113,6 +117,7 @@ module Amigo
       @alert_interval = alert_interval
       @latency_restored_threshold = latency_restored_threshold
       @latency_restored_handlers = latency_restored_handlers.freeze
+      @log = log
     end
 
     def polling_thread
@@ -157,7 +162,7 @@ module Amigo
       hostname = ENV.fetch("DYNO") { Socket.gethostname }
       return false unless self.hostname_regex.match?(hostname)
 
-      self.log(:info, "async_autoscaler_starting")
+      self._log(:info, "async_autoscaler_starting")
       self.setup
       @polling_thread = Thread.new do
         until @stop
@@ -176,10 +181,10 @@ module Amigo
       now = Time.now
       skip_check = now < (@last_alerted + self.alert_interval)
       if skip_check
-        self.log(:debug, "async_autoscaler_skip_check")
+        self._log(:debug, "async_autoscaler_skip_check")
         return
       end
-      self.log(:info, "async_autoscaler_check")
+      self._log(:info, "async_autoscaler_check")
       high_latency_queues = Sidekiq::Queue.all.
         map { |q| [q.name, q.latency] }.
         select { |(_, latency)| latency > self.latency_threshold }.
@@ -232,17 +237,17 @@ module Amigo
     end
 
     def alert_log(names_and_latencies, depth:, duration:)
-      self.log(:warn, "high_latency_queues", queues: names_and_latencies, depth: depth, duration: duration)
+      self._log(:warn, "high_latency_queues", queues: names_and_latencies, depth: depth, duration: duration)
     end
 
     def alert_test(_names_and_latencies, _opts={}); end
 
     def alert_restored_log(depth:, duration:)
-      self.log(:info, "high_latency_queues_restored", depth: depth, duration: duration)
+      self._log(:info, "high_latency_queues_restored", depth: depth, duration: duration)
     end
 
-    protected def log(level, msg, **kw)
-      Amigo.log(nil, level, msg, kw)
+    protected def _log(level, msg, **kw)
+      self.log[level, msg, kw]
     end
   end
 end
