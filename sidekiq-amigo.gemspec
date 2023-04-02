@@ -18,12 +18,14 @@ Gem::Specification.new do |s|
   s.files = Dir["lib/**/*.rb"]
   s.add_runtime_dependency("sidekiq", "~> 6")
   s.add_runtime_dependency("sidekiq-cron", "~> 1")
+  s.add_development_dependency("platform-api", "> 0")
   s.add_development_dependency("rack", "~> 2.2")
   s.add_development_dependency("rspec", "~> 3.10")
   s.add_development_dependency("rspec-core", "~> 3.10")
-  s.add_development_dependency("rubocop", "~> 1.11")
-  s.add_development_dependency("rubocop-performance", "~> 1.10")
+  s.add_development_dependency("rubocop", "~> 1.48")
+  s.add_development_dependency("rubocop-performance", "~> 1.16")
   s.add_development_dependency("sentry-ruby", "~> 5")
   s.add_development_dependency("timecop", "~> 0")
+  s.add_development_dependency("webmock", "> 0")
   s.metadata["rubygems_mfa_required"] = "true"
 end
