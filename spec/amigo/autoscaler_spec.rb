@@ -271,6 +271,20 @@ RSpec.describe Amigo::Autoscaler do
     end
   end
 
+  it "can delete its persisted fields" do
+    expect(Sidekiq.redis(&:keys)).to be_empty
+    expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
+    o = instance
+    expect(o).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+    o.setup
+    o.check
+    expect(Sidekiq.redis(&:keys)).to contain_exactly(
+      "amigo/autoscaler/depth", "amigo/autoscaler/last_alerted", "amigo/autoscaler/latency_event_started",
+    )
+    o.unpersist
+    expect(Sidekiq.redis(&:keys)).to be_empty
+  end
+
   describe "Heroku" do
     let(:heroku) { PlatformAPI.connect_oauth("abc") }
     let(:appname) { "sushi" }

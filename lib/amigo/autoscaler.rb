@@ -145,6 +145,17 @@ module Amigo
       end
     end
 
+    # Delete all the keys that Autoscaler stores.
+    # Can be used in extreme cases where things need to be cleaned up,
+    # but should not be normally used.
+    def unpersist
+      Sidekiq.redis do |r|
+        r.del("#{namespace}/last_alerted")
+        r.del("#{namespace}/depth")
+        r.del("#{namespace}/latency_event_started")
+      end
+    end
+
     protected def namespace
       return "amigo/autoscaler"
     end
