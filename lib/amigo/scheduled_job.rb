@@ -22,11 +22,12 @@ module Amigo
       end
 
       def perform(*args)
-        if args.empty?
+        splay = self.class.splay_duration
+        if splay.nil? || args == [true]
+          self._perform
+        elsif args.empty?
           jitter = rand(0..self.class.splay_duration.to_i)
           self.class.perform_in(jitter, true)
-        elsif args == [true]
-          self._perform
         else
           raise "ScheduledJob#perform must be called with no arguments, or [true]"
         end
@@ -62,6 +63,16 @@ module Amigo
         self.cron_expr = expr
       end
 
+      # When the cron job is run, it is re-enqueued
+      # again with a random offset. This splay prevents
+      # the 'thundering herd' problem, where, say, may jobs
+      # are meant to happen at minute 0. Instead, jobs are offset.
+      #
+      # Use +nil+ to turn off this behavior and get more precise execution.
+      # This is mostly useful for jobs that must run very often.
+      #
+      # +duration+ must respond to +to_i+.
+      # @param duration [Integer,#to_i]
       def splay(duration)
         self.splay_duration = duration
       end

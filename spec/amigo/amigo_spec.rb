@@ -293,6 +293,22 @@ RSpec.describe Amigo do
       expect(args).to eq([true] * 20)
     end
 
+    it "executes immediately when splay is nil" do
+      calls = []
+      job = Class.new do
+        extend Amigo::ScheduledJob
+        cron "* * * * *"
+        splay nil
+        define_method(:_perform) do
+          calls << true
+        end
+      end
+
+      expect(job).to_not receive(:perform_in)
+      Array.new(20) { job.new.perform }
+      expect(calls).to eq([true] * 20)
+    end
+
     it "executes its inner _perform when performed with true" do
       performed = false
       job = Class.new do
