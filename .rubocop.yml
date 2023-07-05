@@ -6,6 +6,9 @@ AllCops:
   SuggestExtensions: false
   TargetRubyVersion: 2.7
 
+Gemspec/DevelopmentDependencies:
+  Enabled: false
+
 Layout/ParameterAlignment:
   EnforcedStyle: with_fixed_indentation
 Layout/CaseIndentation:
