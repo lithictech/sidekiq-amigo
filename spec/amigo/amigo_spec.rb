@@ -157,7 +157,27 @@ RSpec.describe Amigo do
 
       expect do
         Amigo.publish("my-event-5", 123)
+      end.to publish("my-event-5", [123])
+
+      expect do
+        Amigo.publish("my-event-5", 123)
       end.to_not publish("my-event-6")
+
+      expect do
+        Amigo.publish("my-event-5", 123)
+      end.to publish("my-event-5", match([be > 120]))
+
+      expect do
+        Amigo.publish("my-event-5", 123)
+      end.to publish("my-event-5").with_payload(match([be > 120]))
+
+      expect do
+        Amigo.publish("my-event-5", 123)
+      end.to publish(start_with("my-event"))
+
+      expect do
+        Amigo.publish("my-event-5", 123)
+      end.to publish(/my-event-\d/)
     end
   end
 
