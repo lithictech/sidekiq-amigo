@@ -2,9 +2,9 @@ require:
   - rubocop-performance
 
 AllCops:
-  NewCops: enable
+  NewCops: disable
   SuggestExtensions: false
-  TargetRubyVersion: 2.7
+  TargetRubyVersion: 3.0
 
 Gemspec/DevelopmentDependencies:
   Enabled: false
@@ -87,6 +87,8 @@ Style/Documentation:
   Enabled: false
 Style/FormatString:
   EnforcedStyle: percent
+Style/HashEachMethods:
+  Enabled: false
 Style/NumericPredicate:
   AllowedMethods: ['where']
 Style/RedundantReturn:

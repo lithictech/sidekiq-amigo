@@ -101,7 +101,8 @@ module Amigo
       def match_expected_events
         @expected_events.each do |expected_event, expected_payload|
           match = @recorded_events.find do |recorded|
-            recorded.name == expected_event && self.payloads_match?(expected_payload, recorded.payload)
+            self.event_names_match?(expected_event, recorded.name) &&
+              self.payloads_match?(expected_payload, recorded.payload)
           end
 
           if match
@@ -112,9 +113,15 @@ module Amigo
         end
       end
 
-      def payloads_match?(expected, recorded)
-        return expected.matches?(recorded) if expected.respond_to?(:matches?)
-        return expected.nil? || expected.empty? || expected == recorded
+      def event_names_match?(expected, actual)
+        return expected.matches?(actual) if expected.respond_to?(:matches?)
+        return expected.match?(actual) if expected.respond_to?(:match?)
+        return expected == actual
+      end
+
+      def payloads_match?(expected, actual)
+        return expected.matches?(actual) if expected.respond_to?(:matches?)
+        return expected.nil? || expected.empty? || expected == actual
       end
 
       def add_matched(event, payload)
