@@ -17,18 +17,29 @@ require "sidekiq/api"
 #   end
 module Amigo
   module Retry
-    class Error < StandardError; end
+    class Error < StandardError
+      protected def exc_or_msg(timing_msg, obj)
+        return timing_msg if obj.nil?
+        return obj.to_s unless obj.is_a?(Exception)
+        return "#{timing_msg} (#{obj.class}: #{obj.message})"
+      end
+
+      protected def exc?(ex)
+        return ex.is_a?(Exception) ? ex : nil
+      end
+    end
 
     # Raise this class, or a subclass of it, to schedule a later retry,
     # rather than using an error to trigger Sidekiq's default retry behavior.
     # The benefit here is that it allows a consistent, customizable behavior,
     # so is better for 'expected' errors like rate limiting.
     class Retry < Error
-      attr_accessor :interval_or_timestamp
+      attr_accessor :interval_or_timestamp, :wrapped
 
       def initialize(interval_or_timestamp, msg=nil)
         @interval_or_timestamp = interval_or_timestamp
-        super(msg || "retry job in #{interval_or_timestamp}")
+        @wrapped = exc?(msg)
+        super(exc_or_msg("retry job in #{interval_or_timestamp.to_i}s", msg))
       end
     end
 
@@ -37,18 +48,25 @@ module Amigo
     # This allows jobs to hard-fail when there is something like a total outage,
     # rather than retrying.
     class Die < Error
+      attr_accessor :wrapped
+
+      def initialize(msg=nil)
+        @wrapped = exc?(msg)
+        super(exc_or_msg("kill job", msg))
+      end
     end
 
     # Raise this class, or a subclass of it, to:
     # - Use +Retry+ exception semantics while the current attempt is <= +attempts+, or
     # - Use +Die+ exception semantics if the current attempt is > +attempts+.
     class OrDie < Error
-      attr_reader :attempts, :interval_or_timestamp
+      attr_reader :attempts, :interval_or_timestamp, :wrapped
 
       def initialize(attempts, interval_or_timestamp, msg=nil)
+        @wrapped = exc?(msg)
         @attempts = attempts
         @interval_or_timestamp = interval_or_timestamp
-        super(msg || "retry every #{interval_or_timestamp} up to #{attempts} times")
+        super(exc_or_msg("retry every #{interval_or_timestamp.to_i}s up to #{attempts} times", msg))
       end
     end
 
@@ -56,6 +74,12 @@ module Amigo
     # from deep in a job and they want to jump out of the whole thing.
     # Usually you should log before raising this!
     class Quit < Error
+      attr_accessor :wrapped
+
+      def initialize(msg=nil)
+        @wrapped = exc?(msg)
+        super(exc_or_msg("quit job", msg))
+      end
     end
 
     class ServerMiddleware

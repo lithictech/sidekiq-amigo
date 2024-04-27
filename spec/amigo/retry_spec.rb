@@ -116,4 +116,98 @@ RSpec.describe Amigo::Retry do
     expect(all_sidekiq_jobs(Sidekiq::ScheduledSet.new)).to be_empty
     expect(all_sidekiq_jobs(Sidekiq::DeadSet.new)).to be_empty
   end
+
+  describe "Retry" do
+    it "sets a default message" do
+      expect do
+        raise described_class::Retry, 10
+      end.to raise_error(described_class::Retry, "retry job in 10s")
+
+      x = +"x"
+      expect(x).to receive(:to_i).and_return(40) # ActiveSupport Duration-like object
+      expect do
+        raise described_class::Retry, x
+      end.to raise_error(described_class::Retry, "retry job in 40s")
+    end
+
+    it "can use an explicit message" do
+      expect do
+        ex = described_class::Retry.new(10, "foo")
+        expect(ex.wrapped).to be_nil
+        raise ex
+      end.to raise_error(described_class::Retry, "foo")
+    end
+
+    it "can use an exception instead of a message" do
+      expect do
+        ex = described_class::Retry.new(10, StandardError.new("wrapped"))
+        expect(ex.wrapped).to be_a(StandardError)
+        raise ex
+      end.to raise_error(described_class::Retry, "retry job in 10s (StandardError: wrapped)")
+    end
+  end
+
+  describe "Die" do
+    it "can use an explicit message" do
+      expect do
+        ex = described_class::Die.new("foo")
+        expect(ex.wrapped).to be_nil
+        raise ex
+      end.to raise_error(described_class::Die, "foo")
+    end
+
+    it "can use an exception instead of a message" do
+      expect do
+        ex = described_class::Die.new(StandardError.new("wrapped"))
+        expect(ex.wrapped).to be_a(StandardError)
+        raise ex
+      end.to raise_error(described_class::Die, "kill job (StandardError: wrapped)")
+    end
+  end
+
+  describe "Retry::OrDie" do
+    it "sets a default message" do
+      expect do
+        raise described_class::OrDie.new(2, 10)
+      end.to raise_error(described_class::OrDie, "retry every 10s up to 2 times")
+
+      x = +"x"
+      expect(x).to receive(:to_i).and_return(40) # ActiveSupport Duration-like object
+      expect do
+        raise described_class::OrDie.new(2, x)
+      end.to raise_error(described_class::OrDie, "retry every 40s up to 2 times")
+    end
+
+    it "can use an explicit message" do
+      expect do
+        ex = described_class::OrDie.new(2, 10, "foo")
+        expect(ex.wrapped).to be_nil
+        raise ex
+      end.to raise_error(described_class::OrDie, "foo")
+    end
+
+    it "can use an exception instead of a message" do
+      expect do
+        ex = described_class::OrDie.new(2, 10, StandardError.new("wrapped"))
+        expect(ex.wrapped).to be_a(StandardError)
+        raise ex
+      end.to raise_error(described_class::OrDie, "retry every 10s up to 2 times (StandardError: wrapped)")
+    end
+  end
+
+  describe "Quit" do
+    it "can use an explicit message" do
+      expect do
+        raise described_class::Quit, "foo"
+      end.to raise_error(described_class::Quit, "foo")
+    end
+
+    it "can use an exception instead of a message" do
+      expect do
+        ex = described_class::Quit.new(StandardError.new("wrapped"))
+        expect(ex.wrapped).to be_a(StandardError)
+        raise ex
+      end.to raise_error(described_class::Quit, "quit job (StandardError: wrapped)")
+    end
+  end
 end
