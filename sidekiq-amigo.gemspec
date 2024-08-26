@@ -16,7 +16,7 @@ Gem::Specification.new do |s|
     sidekiq-amigo provides a pubsub system and other enhancements around Sidekiq.
   DESC
   s.files = Dir["lib/**/*.rb"]
-  s.add_runtime_dependency("sidekiq", "~> 6")
+  s.add_runtime_dependency("sidekiq", "~> 7")
   s.add_runtime_dependency("sidekiq-cron", "~> 1")
   s.add_development_dependency("platform-api", "> 0")
   s.add_development_dependency("rack", "~> 2.2")
