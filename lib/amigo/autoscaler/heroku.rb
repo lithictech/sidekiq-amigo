@@ -81,7 +81,6 @@ module Amigo
         app_id_or_app_name: ENV.fetch("HEROKU_APP_NAME"),
         formation_id_or_formation_type: "worker"
       )
-
         @heroku = heroku
         @max_additional_workers = max_additional_workers
         @app_id_or_app_name = app_id_or_app_name

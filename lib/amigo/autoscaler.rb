@@ -92,6 +92,13 @@ module Amigo
     # Proc/callable called with (level, message, params={}).
     # By default, use +Amigo.log+ (which logs to the Sidekiq logger).
     attr_reader :log
+    # Proc called with an exception that occurs while the thread is running.
+    # If the handler returns +true+, then the thread will keep going.
+    # All other values will kill the thread, which breaks autoscaling.
+    # Note that Amigo automatically logs unhandled exceptions at :error level.
+    # If you use an error reporter like Sentry, you can pass in something like:
+    #   -> (e) { Sentry.capture_exception(e) }
+    attr_reader :on_unhandled_exception
 
     def initialize(
       poll_interval: 20,
@@ -101,9 +108,9 @@ module Amigo
       alert_interval: 120,
       latency_restored_threshold: latency_threshold,
       latency_restored_handlers: [:log],
-      log: ->(level, message, params={}) { Amigo.log(nil, level, message, params) }
+      log: ->(level, message, params={}) { Amigo.log(nil, level, message, params) },
+      on_unhandled_exception: nil
     )
-
       raise ArgumentError, "latency_threshold must be > 0" if
         latency_threshold <= 0
       raise ArgumentError, "latency_restored_threshold must be >= 0" if
@@ -118,8 +125,10 @@ module Amigo
       @latency_restored_threshold = latency_restored_threshold
       @latency_restored_handlers = latency_restored_handlers.freeze
       @log = log
+      @on_unhandled_exception = on_unhandled_exception
     end
 
+    # @return [Thread]
     def polling_thread
       return @polling_thread
     end
@@ -189,6 +198,14 @@ module Amigo
     end
 
     def check
+      self._check
+    rescue StandardError => e
+      self._log(:error, "async_autoscaler_unhandled_error", exception: e)
+      handled = self.on_unhandled_exception&.call(e)
+      raise e unless handled.eql?(true)
+    end
+
+    def _check
       now = Time.now
       skip_check = now < (@last_alerted + self.alert_interval)
       if skip_check
