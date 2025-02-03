@@ -205,6 +205,65 @@ RSpec.describe Amigo::Autoscaler do
         o4.check
       end
     end
+
+    describe "when an unhandled exception occurs" do
+      it "logs and kills the thread" do
+        o = instance(hostname_regex: /.*/)
+        expect(o).to receive(:alert_interval).and_raise("hi")
+        expect(o).to receive(:check).and_wrap_original do |m, *args|
+          o.polling_thread.report_on_exception = false
+          m.call(*args)
+        end
+        expect(o.start).to be(true)
+        dead = (0..100).find do
+          Kernel.sleep(0.02)
+          !o.polling_thread.alive?
+        end
+        ::RSpec::Expectations.fail_with("expected thread to die") unless dead
+      end
+
+      it "calls on_unhandled_exception and kills the thread" do
+        calls = []
+        cb = lambda { |e|
+          calls << e
+        }
+        o = instance(hostname_regex: /.*/, on_unhandled_exception: cb)
+        err = RuntimeError.new("hi")
+        expect(o).to receive(:alert_interval).and_raise(err)
+        expect(o).to receive(:check).and_wrap_original do |m, *args|
+          o.polling_thread.report_on_exception = false
+          m.call(*args)
+        end
+        expect(o.start).to be(true)
+        dead = (0..100).find do
+          Kernel.sleep(0.02)
+          !o.polling_thread.alive?
+        end
+        ::RSpec::Expectations.fail_with("thread never died") unless dead
+        expect(calls).to contain_exactly(err)
+      end
+
+      it "calls on_unhandled_exception but does not kill the thread if it returns true" do
+        calls = []
+        cb = lambda { |e|
+          calls << e
+          true if calls.size < 3
+        }
+        o = instance(hostname_regex: /.*/, on_unhandled_exception: cb)
+        expect(o).to receive(:alert_interval).and_raise("hi").thrice
+        expect(o).to receive(:check).thrice.and_wrap_original do |m, *args|
+          o.polling_thread.report_on_exception = false
+          m.call(*args)
+        end
+        expect(o.start).to be(true)
+        dead = (0..100).find do
+          Kernel.sleep(0.02)
+          !o.polling_thread.alive?
+        end
+        ::RSpec::Expectations.fail_with("thread never died") unless dead
+        expect(calls).to have_attributes(length: 3)
+      end
+    end
   end
 
   describe "alert_log" do
