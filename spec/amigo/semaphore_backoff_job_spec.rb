@@ -2,6 +2,8 @@
 
 require "amigo/semaphore_backoff_job"
 
+require_relative "./helpers"
+
 RSpec.describe Amigo::SemaphoreBackoffJob do
   before(:each) do
     Sidekiq::Testing.disable!
@@ -43,6 +45,23 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
     kls = create_job_class(perform: ->(a) { calls << a }, key: nocall, size: nocall)
     sidekiq_perform_inline(kls, [1])
     expect(calls).to eq([1])
+  end
+
+  it "is automatically disabled if percentage memory used is above the threshold" do
+    Amigo::MemoryPressure.instance = Amigo::Test::FakeMemoryPressure.new(used_memory: 1024 * 0.95, maxmemory: 1024)
+    Sidekiq.redis do |c|
+      c.set("semkey", 5) # Semaphore is at max size
+    end
+    calls = []
+    kls = create_job_class(perform: ->(a) { calls << a }) do |this|
+      this.define_method(:semaphore_backoff) do
+        6
+      end
+    end
+    sidekiq_perform_inline(kls, [1])
+    expect(calls).to eq([1])
+  ensure
+    Amigo::MemoryPressure.instance = nil
   end
 
   it "calls perform if the semaphore is below max size" do

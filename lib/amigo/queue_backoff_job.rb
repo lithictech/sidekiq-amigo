@@ -3,6 +3,8 @@
 require "sidekiq"
 require "sidekiq/api"
 
+require "amigo/memory_pressure"
+
 # Queue backoff jobs are used for jobs that should not saturate workers,
 # such that jobs on dependent queues end up not running for a while.
 #
@@ -44,6 +46,11 @@ require "sidekiq/api"
 # potentially for each queue in `dependent_queues`.
 # This is a fast call (it just gets the last item), but it's not free,
 # so users should be aware of it.
+#
+# == High Memory Utilization
+#
+# Queue backoff behavior is automatically disabled under high memory utilization,
+# as per +Amigo::MemoryPressure+.
 #
 module Amigo
   module QueueBackoffJob
@@ -126,6 +133,7 @@ module Amigo
     module PrependedMethods
       def perform(*args)
         return super unless ::Amigo::QueueBackoffJob.enabled?
+        return super if ::Amigo::MemoryPressure.instance.under_pressure?
         # rubocop:disable Style/GuardClause, Lint/NonLocalExitFromIterator
         dependent_queues.each do |qname|
           latency = Amigo::QueueBackoffJob.check_latency(qname)
