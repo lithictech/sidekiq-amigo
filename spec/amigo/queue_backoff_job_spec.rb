@@ -2,6 +2,8 @@
 
 require "amigo/queue_backoff_job"
 
+require_relative "./helpers"
+
 RSpec.describe Amigo::QueueBackoffJob do
   before(:each) do
     Sidekiq::Testing.fake!
@@ -59,6 +61,21 @@ RSpec.describe Amigo::QueueBackoffJob do
     kls.perform_async(1)
     kls.drain
     expect(calls).to eq([1])
+  end
+
+  it "is automatically disabled if percentage memory used is above the threshold" do
+    Amigo::MemoryPressure.instance = Amigo::Test::FakeMemoryPressure.new(used_memory: 1024 * 0.95, maxmemory: 1024)
+    calls = []
+    kls = create_job_class(
+      perform: ->(a) { calls << a },
+      dependent_queues: nocall,
+      calculate_backoff: nocall,
+    )
+    kls.perform_async(1)
+    kls.drain
+    expect(calls).to eq([1])
+  ensure
+    Amigo::MemoryPressure.instance = nil
   end
 
   it "calls perform if none of the dependent queues have latency" do

@@ -2,9 +2,8 @@
 
 require "sidekiq"
 
-module Amigo
-  # This is a placeholder until it's migrated to Amigo proper
-end
+require "amigo"
+require "amigo/memory_pressure"
 
 # Semaphore backoff jobs can reschedule themselves to happen at a later time
 # if there is too high a contention on a semaphore.
@@ -47,6 +46,11 @@ end
 # the counter would be -1. To avoid negative counters (which create the same issue
 # around missing decrements), if we ever detect a negative 'jobs running',
 # we warn and remove the key entirely.
+#
+# == High Memory Utilization
+#
+# Queue backoff behavior is automatically disabled under high memory utilization,
+# as per +Amigo::MemoryPressure+.
 #
 module Amigo
   module SemaphoreBackoffJob
@@ -94,6 +98,7 @@ module Amigo
       def perform(*args)
         self.before_perform(*args) if self.respond_to?(:before_perform)
         return super unless ::Amigo::SemaphoreBackoffJob.enabled?
+        return super if ::Amigo::MemoryPressure.instance.under_pressure?
         key = self.semaphore_key
         size = self.semaphore_size
         # Create a simple counter for the semaphore key.
