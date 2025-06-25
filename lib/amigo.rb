@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "redis"
 require "sidekiq"
 require "sidekiq-cron"
 
@@ -61,18 +60,18 @@ require "sidekiq-cron"
 # to control the matching rules more closely than File.fnmatch can provide.
 #
 # Jobs must implement a `_perform` method, which takes a Amigo::Event.
-# Note that normal Sidekiq workers use a 'perform' method that takes a variable number of arguments;
+# Note that normal Sidekiq jobs use a 'perform' method that takes a variable number of arguments;
 # the base Async::Job class has this method and delegates its business logic to the subclass _perform method.
 #
 # Routing
 #
-# There are two special workers that are important for the overall functioning of the system
-# (and do not inherit from Job but rather than Sidekiq::Worker so they are not classified and treated as 'Jobs').
+# There are two special jobs that are important for the overall functioning of the system
+# (and do not inherit from Job but rather than Sidekiq::Job so they are not classified and treated as 'Jobs').
 #
 # The first is the AuditLogger, which is a basic job that logs all async events.
 # This acts as a useful change log for the state of the database.
 #
-# The second special worker is the Router, which calls `perform` on the event Jobs
+# The second special job is the Router, which calls `perform` on the event Jobs
 # that match the routing information, as explained in Jobs.
 # It does this by filtering through all event-based jobs and performing the ones with a route match.
 #

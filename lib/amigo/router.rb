@@ -6,7 +6,7 @@ require "amigo"
 
 module Amigo
   class Router
-    include Sidekiq::Worker
+    include Sidekiq::Job
 
     def perform(event_json)
       event_name = event_json["name"]

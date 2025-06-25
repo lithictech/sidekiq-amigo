@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "amigo"
-require "sidekiq/worker"
 
 module Amigo
   module SpecHelpers
@@ -248,7 +247,7 @@ module Amigo
       return PerformAsyncJobMatcher.new(job)
     end
 
-    # Like a Sidekiq worker's perform_inline,
+    # Like a Sidekiq job's perform_inline,
     # but allows an arbitrary item to be used, rather than just the
     # given class and args. For example, when testing,
     # you may need to assume something like 'retry_count' is in the job payload,
@@ -256,11 +255,11 @@ module Amigo
     # This allows those arbitrary job payload fields
     # to be included when the job is run.
     module_function def sidekiq_perform_inline(klass, args, item=nil)
-      Sidekiq::Worker::Setter.override_item = item
+      Sidekiq::Job::Setter.override_item = item
       begin
         klass.perform_inline(*args)
       ensure
-        Sidekiq::Worker::Setter.override_item = nil
+        Sidekiq::Job::Setter.override_item = nil
       end
     end
 
@@ -304,7 +303,7 @@ module Amigo
 end
 
 module ::Sidekiq
-  module Worker
+  module Job
     class Setter
       class << self
         attr_accessor :override_item

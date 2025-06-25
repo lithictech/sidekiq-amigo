@@ -20,7 +20,7 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
 
   def create_job_class(perform:, key: "semkey", size: 5, &block)
     cls = Class.new do
-      include Sidekiq::Worker
+      include Sidekiq::Job
       include Amigo::SemaphoreBackoffJob
 
       define_method(:perform) { |*args| perform[*args] }
@@ -28,7 +28,7 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
       define_method(:semaphore_size) { size }
 
       def self.to_s
-        return "SemaphoreBackoffJob::TestWorker"
+        return "SemaphoreBackoffJob::TestJob"
       end
 
       block && class_eval do

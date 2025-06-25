@@ -33,7 +33,7 @@ require "amigo/memory_pressure"
 # - `semaphore_expiry` should return the TTL of the semaphore key.
 #   Defaults to 30 seconds. See below for key expiry and negative semaphore value details.
 # - `before_perform` is called before calling the `perform` method.
-#   This is required so that implementers can set worker state, based on job arguments,
+#   This is required so that implementers can set job state, based on job arguments,
 #   that can be used for calculating the semaphore key.
 #
 # Note that we give the semaphore key an expiry. This is to avoid situation where
@@ -41,7 +41,7 @@ require "amigo/memory_pressure"
 # have fewer than the expected number of jobs running.
 #
 # This does mean that, when a job runs longer than the semaphore expiry,
-# another worker can be started, which would increment the counter back to 1.
+# another job can be started, which would increment the counter back to 1.
 # When the original job ends, the counter would be 0; then when the new job ends,
 # the counter would be -1. To avoid negative counters (which create the same issue
 # around missing decrements), if we ever detect a negative 'jobs running',
@@ -78,11 +78,11 @@ module Amigo
 
     module InstanceMethods
       def semaphore_key
-        raise NotImplementedError, "must be implemented on worker"
+        raise NotImplementedError, "must be implemented on job"
       end
 
       def semaphore_size
-        raise NotImplementedError, "must be implemented on worker"
+        raise NotImplementedError, "must be implemented on job"
       end
 
       def semaphore_backoff

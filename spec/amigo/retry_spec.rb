@@ -17,7 +17,7 @@ RSpec.describe Amigo::Retry do
   def create_job_class(perform: nil, ex: nil, &block)
     raise "pass :perform or :ex" unless perform || ex
     cls = Class.new do
-      include Sidekiq::Worker
+      include Sidekiq::Job
 
       define_method(:perform) do |*args|
         raise ex if ex
@@ -25,7 +25,7 @@ RSpec.describe Amigo::Retry do
       end
 
       def self.to_s
-        return "Retry::TestWorker"
+        return "Retry::TestJob"
       end
 
       block && class_eval do

@@ -4,7 +4,7 @@ require "amigo"
 
 module Amigo
   class AuditLogger
-    include Sidekiq::Worker
+    include Sidekiq::Job
 
     def audit_log_level
       return :info

@@ -12,7 +12,7 @@ RSpec.describe Amigo::QueueBackoffJob do
   end
 
   after(:each) do
-    Sidekiq::Worker.drain_all
+    Sidekiq::Job.drain_all
     described_class.reset
   end
 
@@ -20,7 +20,7 @@ RSpec.describe Amigo::QueueBackoffJob do
 
   def create_job_class(perform:, dependent_queues:, calculate_backoff:)
     cls = Class.new do
-      include Sidekiq::Worker
+      include Sidekiq::Job
       include Amigo::QueueBackoffJob
 
       perform && define_method(:perform) do |*args|
@@ -36,7 +36,7 @@ RSpec.describe Amigo::QueueBackoffJob do
       end
 
       def self.to_s
-        return "BackoffJob::TestWorker"
+        return "BackoffJob::TestJob"
       end
     end
     stub_const(cls.to_s, cls)
