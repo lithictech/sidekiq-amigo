@@ -6,11 +6,11 @@ RSpec.describe Amigo::Retry do
   before(:each) do
     Sidekiq.redis(&:flushdb)
     Sidekiq::Testing.disable!
-    Sidekiq.server_middleware.add(described_class::ServerMiddleware)
+    Sidekiq.default_configuration.server_middleware.add(described_class::ServerMiddleware)
   end
 
   after(:each) do
-    Sidekiq.server_middleware.remove(described_class::ServerMiddleware)
+    Sidekiq.default_configuration.server_middleware.remove(described_class::ServerMiddleware)
     Sidekiq.redis(&:flushdb)
   end
 

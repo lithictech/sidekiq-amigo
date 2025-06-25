@@ -330,18 +330,20 @@ RSpec.describe Amigo::Autoscaler do
     end
   end
 
+  def listkeys = Sidekiq.redis { |c| c.call("KEYS", "*") }
+
   it "can delete its persisted fields" do
-    expect(Sidekiq.redis(&:keys)).to be_empty
+    expect(listkeys).to be_empty
     expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
     o = instance
     expect(o).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
     o.setup
     o.check
-    expect(Sidekiq.redis(&:keys)).to contain_exactly(
+    expect(listkeys).to contain_exactly(
       "amigo/autoscaler/depth", "amigo/autoscaler/last_alerted", "amigo/autoscaler/latency_event_started",
     )
     o.unpersist
-    expect(Sidekiq.redis(&:keys)).to be_empty
+    expect(listkeys).to be_empty
   end
 
   describe "Heroku" do
@@ -376,7 +378,7 @@ RSpec.describe Amigo::Autoscaler do
       expect(reqinfo).to have_been_made
       expect(requp).to have_been_made
       expect(reqdown).to have_been_made
-      expect(Sidekiq.redis(&:keys)).to_not include("amigo/autoscaler/heroku/active_event_initial_workers")
+      expect(listkeys).to_not include("amigo/autoscaler/heroku/active_event_initial_workers")
     end
 
     it "does not scale if initial workers are 0" do

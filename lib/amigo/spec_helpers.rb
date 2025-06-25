@@ -266,7 +266,7 @@ module Amigo
     module_function def drain_sidekiq_jobs(q)
       all_sidekiq_jobs(q).each do |job|
         klass = job.item.fetch("class")
-        klass = Sidekiq::Testing.constantize(klass) if klass.is_a?(String)
+        klass = Object.const_get(klass) if klass.is_a?(String)
         sidekiq_perform_inline(klass, job.item["args"], job.item)
         job.delete
       end
@@ -281,6 +281,8 @@ module Amigo
     # Use this middleware to pass an arbitrary callback evaluated before a job runs.
     # Make sure to call +reset+ after the test.
     class ServerCallbackMiddleware
+      include Sidekiq::ServerMiddleware
+
       class << self
         attr_accessor :callback
       end

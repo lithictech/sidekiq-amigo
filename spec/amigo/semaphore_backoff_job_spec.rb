@@ -77,7 +77,7 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
 
   it "only sets key expiry for the first job taking the semaphore" do
     Sidekiq.redis do |c|
-      c.setex("semkey", 100, "1") # Pretend the semaphore is already taken, and we check the TTL later
+      c.set("semkey", "1", "EX", 100) # Pretend the semaphore is already taken, and we check the TTL later
     end
     calls = []
     kls = create_job_class(perform: ->(a) { calls << a })

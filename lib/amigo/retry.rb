@@ -83,6 +83,8 @@ module Amigo
     end
 
     class ServerMiddleware
+      include Sidekiq::ServerMiddleware
+
       def call(worker, job, _queue)
         yield
       rescue Amigo::Retry::Retry => e

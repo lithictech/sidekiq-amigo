@@ -71,6 +71,6 @@ RSpec.describe Amigo::MemoryPressure, :async, :db do
 
   it "can parse the memory info output" do
     m = described_class.new
-    expect(m.get_memory_info).to include("active_defrag_running" => "0", "used_memory_peak_human" => "905.68K")
+    expect(m.get_memory_info).to include("active_defrag_running" => /\d+/, "allocator_allocated" => /\d+/)
   end
 end
