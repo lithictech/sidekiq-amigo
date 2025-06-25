@@ -11,7 +11,7 @@ Gem::Specification.new do |s|
   s.email = "hello@lithic.tech"
   s.homepage = "https://github.com/lithictech/sidekiq-amigo"
   s.licenses = "MIT"
-  s.required_ruby_version = ">= 3.0.0"
+  s.required_ruby_version = ">= 3.4.0"
   s.description = <<~DESC
     sidekiq-amigo provides a pubsub system and other enhancements around Sidekiq.
   DESC
