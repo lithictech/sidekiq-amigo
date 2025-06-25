@@ -203,6 +203,11 @@ RSpec.describe Amigo::Autoscaler do
         expect(o4).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
         o4.setup
         o4.check
+        expect(o4.fetch_persisted).to have_attributes(
+          last_alerted_at: Time.at(130),
+          depth: 1,
+          latency_event_started_at: Time.at(130),
+        )
       end
     end
 

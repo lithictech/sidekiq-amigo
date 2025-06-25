@@ -35,6 +35,13 @@ module Amigo
   class Autoscaler
     class InvalidHandler < StandardError; end
 
+    # Struct representing data serialized to Redis.
+    # Useful for diagnostics. Can be retried with +fetch_persisted+.
+    # @!attribute last_alerted_at [Time] 0-time if there is no recent alert.
+    # @!attribute depth [Integer] 0 if not in a latency event.
+    # @!attribute latency_event_started_at [Time] 0-time if not in a latency event.
+    Persisted = Struct.new(:last_alerted_at, :depth, :latency_event_started_at)
+
     # How often should Autoscaler check for latency?
     # @return [Integer]
     attr_reader :poll_interval
@@ -139,10 +146,19 @@ module Amigo
       @alert_methods = self.handlers.map { |a| _handler_to_method("alert_", a) }
       @restored_methods = self.latency_restored_handlers.map { |a| _handler_to_method("alert_restored_", a) }
       @stop = false
-      Sidekiq.redis do |r|
-        @last_alerted = Time.at((r.get("#{namespace}/last_alerted") || 0).to_f)
-        @depth = (r.get("#{namespace}/depth") || 0).to_i
-        @latency_event_started = Time.at((r.get("#{namespace}/latency_event_started") || 0).to_f)
+      persisted = self.fetch_persisted
+      @last_alerted = persisted.last_alerted_at
+      @depth = persisted.depth
+      @latency_event_started = persisted.latency_event_started_at
+    end
+
+    def fetch_persisted
+      return Sidekiq.redis do |r|
+        Persisted.new(
+          Time.at((r.get("#{namespace}/last_alerted") || 0).to_f),
+          (r.get("#{namespace}/depth") || 0).to_i,
+          Time.at((r.get("#{namespace}/latency_event_started") || 0).to_f),
+        )
       end
     end
 
