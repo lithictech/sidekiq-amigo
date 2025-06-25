@@ -74,10 +74,23 @@ module Amigo
       return percentage > self.threshold
     end
 
-    protected def get_memory_info
-      Sidekiq.redis do |c|
-        c.info :memory
+    def get_memory_info
+      s = self.get_memory_info_string
+      return self.parse_memory_string(s)
+    end
+
+    protected def get_memory_info_string
+      s = Sidekiq.redis do |c|
+        c.call("INFO", "MEMORY")
       end
+      return s
+    end
+
+    protected def parse_memory_string(s)
+      # See bottom of https://redis.io/docs/latest/commands/info/ for format.
+      pairs = s.split("\r\n").reject { |line| line.start_with?("#") }.map { |pair| pair.split(":", 2) }
+      h = pairs.to_h
+      return h
     end
   end
 end
