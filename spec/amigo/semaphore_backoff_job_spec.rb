@@ -20,7 +20,7 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
 
   def create_job_class(perform:, key: "semkey", size: 5, &block)
     cls = Class.new do
-      include Sidekiq::Worker
+      include Sidekiq::Job
       include Amigo::SemaphoreBackoffJob
 
       define_method(:perform) { |*args| perform[*args] }
@@ -28,7 +28,7 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
       define_method(:semaphore_size) { size }
 
       def self.to_s
-        return "SemaphoreBackoffJob::TestWorker"
+        return "SemaphoreBackoffJob::TestJob"
       end
 
       block && class_eval do
@@ -77,7 +77,7 @@ RSpec.describe Amigo::SemaphoreBackoffJob do
 
   it "only sets key expiry for the first job taking the semaphore" do
     Sidekiq.redis do |c|
-      c.setex("semkey", 100, "1") # Pretend the semaphore is already taken, and we check the TTL later
+      c.set("semkey", "1", "EX", 100) # Pretend the semaphore is already taken, and we check the TTL later
     end
     calls = []
     kls = create_job_class(perform: ->(a) { calls << a })

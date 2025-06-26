@@ -7,7 +7,7 @@ require "amigo"
 module Amigo
   module Job
     def self.extended(cls)
-      cls.include(Sidekiq::Worker)
+      cls.include(Sidekiq::Job)
       cls.extend(ClassMethods)
       cls.pattern = ""
       cls.include(InstanceMethods)

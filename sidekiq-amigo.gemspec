@@ -11,15 +11,15 @@ Gem::Specification.new do |s|
   s.email = "hello@lithic.tech"
   s.homepage = "https://github.com/lithictech/sidekiq-amigo"
   s.licenses = "MIT"
-  s.required_ruby_version = ">= 3.0.0"
+  s.required_ruby_version = ">= 3.2.0"
   s.description = <<~DESC
     sidekiq-amigo provides a pubsub system and other enhancements around Sidekiq.
   DESC
   s.files = Dir["lib/**/*.rb"]
-  s.add_runtime_dependency("sidekiq", "~> 6")
-  s.add_runtime_dependency("sidekiq-cron", "~> 1")
+  s.add_runtime_dependency("sidekiq", ">= 7")
+  s.add_runtime_dependency("sidekiq-cron", "~> 2")
   s.add_development_dependency("platform-api", "> 0")
-  s.add_development_dependency("rack", "~> 2.2")
+  s.add_development_dependency("rack", "~> 3.1")
   s.add_development_dependency("rspec", "~> 3.10")
   s.add_development_dependency("rspec-core", "~> 3.10")
   s.add_development_dependency("rubocop", "~> 1.48")

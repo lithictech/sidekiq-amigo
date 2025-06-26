@@ -8,7 +8,7 @@ require "amigo"
 module Amigo
   module ScheduledJob
     def self.extended(cls)
-      cls.include(Sidekiq::Worker)
+      cls.include(Sidekiq::Job)
       cls.sidekiq_options(retry: false)
       cls.extend(ClassMethods)
       cls.splay_duration = 30

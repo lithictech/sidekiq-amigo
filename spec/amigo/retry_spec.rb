@@ -6,18 +6,18 @@ RSpec.describe Amigo::Retry do
   before(:each) do
     Sidekiq.redis(&:flushdb)
     Sidekiq::Testing.disable!
-    Sidekiq.server_middleware.add(described_class::ServerMiddleware)
+    Sidekiq.default_configuration.server_middleware.add(described_class::ServerMiddleware)
   end
 
   after(:each) do
-    Sidekiq.server_middleware.remove(described_class::ServerMiddleware)
+    Sidekiq.default_configuration.server_middleware.remove(described_class::ServerMiddleware)
     Sidekiq.redis(&:flushdb)
   end
 
   def create_job_class(perform: nil, ex: nil, &block)
     raise "pass :perform or :ex" unless perform || ex
     cls = Class.new do
-      include Sidekiq::Worker
+      include Sidekiq::Job
 
       define_method(:perform) do |*args|
         raise ex if ex
@@ -25,7 +25,7 @@ RSpec.describe Amigo::Retry do
       end
 
       def self.to_s
-        return "Retry::TestWorker"
+        return "Retry::TestJob"
       end
 
       block && class_eval do

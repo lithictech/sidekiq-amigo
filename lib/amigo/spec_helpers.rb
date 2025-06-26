@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "amigo"
-require "sidekiq/worker"
 
 module Amigo
   module SpecHelpers
@@ -248,7 +247,7 @@ module Amigo
       return PerformAsyncJobMatcher.new(job)
     end
 
-    # Like a Sidekiq worker's perform_inline,
+    # Like a Sidekiq job's perform_inline,
     # but allows an arbitrary item to be used, rather than just the
     # given class and args. For example, when testing,
     # you may need to assume something like 'retry_count' is in the job payload,
@@ -256,18 +255,18 @@ module Amigo
     # This allows those arbitrary job payload fields
     # to be included when the job is run.
     module_function def sidekiq_perform_inline(klass, args, item=nil)
-      Sidekiq::Worker::Setter.override_item = item
+      Sidekiq::Job::Setter.override_item = item
       begin
         klass.perform_inline(*args)
       ensure
-        Sidekiq::Worker::Setter.override_item = nil
+        Sidekiq::Job::Setter.override_item = nil
       end
     end
 
     module_function def drain_sidekiq_jobs(q)
       all_sidekiq_jobs(q).each do |job|
         klass = job.item.fetch("class")
-        klass = Sidekiq::Testing.constantize(klass) if klass.is_a?(String)
+        klass = Object.const_get(klass) if klass.is_a?(String)
         sidekiq_perform_inline(klass, job.item["args"], job.item)
         job.delete
       end
@@ -282,6 +281,8 @@ module Amigo
     # Use this middleware to pass an arbitrary callback evaluated before a job runs.
     # Make sure to call +reset+ after the test.
     class ServerCallbackMiddleware
+      include Sidekiq::ServerMiddleware
+
       class << self
         attr_accessor :callback
       end
@@ -304,7 +305,7 @@ module Amigo
 end
 
 module ::Sidekiq
-  module Worker
+  module Job
     class Setter
       class << self
         attr_accessor :override_item

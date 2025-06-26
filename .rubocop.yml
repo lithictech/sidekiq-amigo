@@ -1,10 +1,10 @@
-require:
+plugins:
   - rubocop-performance
 
 AllCops:
   NewCops: disable
   SuggestExtensions: false
-  TargetRubyVersion: 3.0
+  TargetRubyVersion: 3.2
 
 Gemspec/DevelopmentDependencies:
   Enabled: false
@@ -68,7 +68,7 @@ Lint/UselessAssignment:
 # https://rubocop.readthedocs.io/en/latest/cops_naming/
 Naming/AccessorMethodName:
   Enabled: false
-Naming/PredicateName:
+Naming/PredicatePrefix:
   Exclude:
     - 'spec/**/*'
 Naming/MethodParameterName:

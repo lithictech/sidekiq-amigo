@@ -54,10 +54,10 @@ RSpec.describe Amigo::MemoryPressure, :async, :db do
     conncls = Class.new do
       attr_reader :infos
 
-      def info(arg)
+      def call(*args)
         @infos ||= []
-        @infos << arg
-        return {}
+        @infos << args
+        return "# Memory x:y"
       end
     end
     conn = conncls.new
@@ -66,6 +66,11 @@ RSpec.describe Amigo::MemoryPressure, :async, :db do
     end
     mp = Amigo::MemoryPressure.new
     mp.under_pressure?
-    expect(conn.infos).to eq([:memory])
+    expect(conn.infos).to eq([["INFO", "MEMORY"]])
+  end
+
+  it "can parse the memory info output" do
+    m = described_class.new
+    expect(m.get_memory_info).to include("active_defrag_running" => /\d+/, "allocator_allocated" => /\d+/)
   end
 end

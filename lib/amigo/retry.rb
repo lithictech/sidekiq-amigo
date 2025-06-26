@@ -3,7 +3,7 @@
 require "sidekiq"
 require "sidekiq/api"
 
-# Middleware so Sidekiq workers can use a custom retry logic.
+# Middleware so Sidekiq jobs can use a custom retry logic.
 # See +Amigo::Retry::Retry+, +Amigo::Retry::Die+,
 # and +Amigo::Retry::OrDie+ for more details
 # on how these should be used.
@@ -83,6 +83,8 @@ module Amigo
     end
 
     class ServerMiddleware
+      include Sidekiq::ServerMiddleware
+
       def call(worker, job, _queue)
         yield
       rescue Amigo::Retry::Retry => e
@@ -120,14 +122,14 @@ module Amigo
         end
       end
 
-      def amigo_retry_in(worker_class, item, interval)
+      def amigo_retry_in(job_class, item, interval)
         # pulled from perform_in
         int = interval.to_f
         now = Time.now.to_f
         ts = (int < 1_000_000_000 ? now + int : int)
         item["at"] = ts if ts > now
         item["retry_count"] = item.fetch("retry_count", 0) + 1
-        worker_class.client_push(item)
+        job_class.client_push(item)
       end
     end
   end
