@@ -6,6 +6,8 @@ module Amigo
       class Chain < Amigo::Autoscaler::Handler
         attr_accessor :chain
 
+        # Chain multiple handlers together.
+        # @param chain [Array<Amigo::Autoscaler::Handler>]
         def initialize(chain)
           @chain = chain
           super()
