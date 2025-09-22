@@ -34,6 +34,8 @@ jobs:
         run: bundle exec rubocop
       - name: Run specs
         run: bundle exec rspec spec/
+        env:
+          LOG_LEVEL: fatal
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:

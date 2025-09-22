@@ -12,6 +12,8 @@ require "sidekiq/testing"
 require "webmock/rspec"
 require "amigo/spec_helpers"
 
+Sidekiq.logger.level = Logger.const_get(ENV["LOG_LEVEL"].upcase) if ENV["LOG_LEVEL"]
+
 RSpec.configure do |config|
   config.full_backtrace = true
 
@@ -50,13 +52,5 @@ RSpec.configure do |config|
   end
   config.after(:each) do
     Amigo.reset_logging
-  end
-end
-
-# See https://github.com/mperham/sidekiq/issues/5510
-# Once it's fixed we can remove.
-class String
-  def constantize
-    return Sidekiq::Testing.constantize(self)
   end
 end
