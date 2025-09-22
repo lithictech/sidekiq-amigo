@@ -3,11 +3,19 @@
 require "timecop"
 
 require "amigo/autoscaler"
-require "amigo/autoscaler/heroku"
+require "amigo/autoscaler/checkers/fake"
+require "amigo/autoscaler/checkers/sidekiq"
+require "amigo/autoscaler/handlers/chain"
+require "amigo/autoscaler/handlers/fake"
+require "amigo/autoscaler/handlers/heroku"
+require "amigo/autoscaler/handlers/log"
+require "amigo/autoscaler/handlers/sentry"
 
 RSpec.describe Amigo::Autoscaler do
-  def instance(**kw)
-    described_class.new(poll_interval: 0, handlers: ["test"], **kw)
+  def new_autoscaler(latencies: {}, **kw)
+    kw[:checker] ||= Amigo::Autoscaler::Checkers::Fake.new(latencies)
+    kw[:handler] ||= Amigo::Autoscaler::Handlers::Fake.new
+    Amigo::Autoscaler.new(poll_interval: 0, **kw)
   end
 
   before(:each) do
@@ -20,187 +28,166 @@ RSpec.describe Amigo::Autoscaler do
     ENV["DYNO"] = @dyno
   end
 
-  def fake_q(name, latency)
-    cls = Class.new do
-      define_method(:name) { name }
-      define_method(:latency) { latency }
-    end
-    return cls.new
-  end
-
   describe "initialize" do
     it "errors for a negative or 0 latency_threshold" do
       expect do
-        described_class.new(latency_threshold: -1)
+        new_autoscaler(latency_threshold: -1)
       end.to raise_error(ArgumentError)
     end
 
     it "errors for a negative latency_restored_threshold" do
       expect do
-        described_class.new(latency_restored_threshold: -1)
+        new_autoscaler(latency_restored_threshold: -1)
       end.to raise_error(ArgumentError)
     end
 
     it "errors if the latency restored threshold is > latency threshold" do
       expect do
-        described_class.new(latency_threshold: 100, latency_restored_threshold: 101)
+        new_autoscaler(latency_threshold: 100, latency_restored_threshold: 101)
       end.to raise_error(ArgumentError)
     end
 
     it "defaults latency restored threshold to latency threshold" do
-      x = described_class.new(latency_threshold: 100)
+      x = new_autoscaler(latency_threshold: 100)
       expect(x).to have_attributes(latency_restored_threshold: 100)
     end
   end
 
   describe "start" do
     it "starts a polling thread if the dyno env var matches the given regex" do
-      allow(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 0)])
-
       ENV["DYNO"] = "foo.123"
-      o = instance(hostname_regex: /^foo\.123$/)
+      o = new_autoscaler(hostname_regex: /^foo\.123$/)
       expect(o.start).to be_truthy
       expect(o.polling_thread).to be_a(Thread)
       o.polling_thread.kill
 
-      o = instance
+      o = new_autoscaler
       ENV["DYNO"] = "foo.12"
       expect(o.start).to be_falsey
       expect(o.polling_thread).to be_nil
     end
 
     it "starts a polling thread if the hostname matches the given regex" do
-      allow(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 0)])
-
       expect(Socket).to receive(:gethostname).and_return("foo.123")
-      o = instance(hostname_regex: /^foo\.123$/)
+      o = new_autoscaler(hostname_regex: /^foo\.123$/)
       expect(o.start).to be_truthy
       expect(o.polling_thread).to be_a(Thread)
       o.polling_thread.kill
 
       expect(Socket).to receive(:gethostname).and_return("foo.12")
-      o = instance
+      o = new_autoscaler
       expect(o.start).to be_falsey
       expect(o.polling_thread).to be_nil
     end
+
+    it "can stop" do
+      # Just call stop for coverage
+      o = new_autoscaler(hostname_regex: /.*/)
+      expect(o.start).to be_truthy
+      o.stop
+    end
+  end
+
+  it "logs under debug" do
+    ENV["DEBUG"] = "1"
+    o = new_autoscaler(hostname_regex: /.*/)
+    o.start
+  ensure
+    ENV.delete("DEBUG")
   end
 
   describe "check" do
     it "noops if there are no high latency queues" do
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1)])
-      o = instance
-      expect(o).to_not receive(:alert_test)
+      o = new_autoscaler(latencies: {"x" => 1})
       o.setup
       o.check
+      expect(o.handler.ups).to be_empty
     end
 
     it "alerts about high latency queues" do
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
-      o = instance
-      expect(o).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+      o = new_autoscaler(latencies: {"x" => 1, "y" => 20})
       o.setup
       o.check
+      expect(o.handler.ups).to match_array([[{"y" => 20}, 1, 0, {}]])
     end
 
     it "keeps track of duration and depth after multiple alerts" do
-      expect(Sidekiq::Queue).to receive(:all).twice.and_return([fake_q("y", 20)])
-      o = instance(alert_interval: 0)
-      expect(o).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+      o = new_autoscaler(alert_interval: 0, latencies: {"y" => 20})
       o.setup
       o.check
       sleep 0.1
-      expect(o).to receive(:alert_test).with({"y" => 20}, duration: be > 0.05, depth: 2)
       o.check
-    end
-
-    it "alerts with keywords when handlers have keyword (2) arity" do
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)])
-      got = []
-      handler = ->(q, kw) { got << [q, kw] }
-      o = instance(handlers: [handler])
-      o.setup
-      o.check
-      expect(got).to eq([[{"y" => 20}, {depth: 1, duration: 0.0}]])
-    end
-
-    it "alerts with keywords when handlers have splat arity" do
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)])
-      got = []
-      handler = proc { |*a| got << a }
-      o = instance(handlers: [handler])
-      o.setup
-      o.check
-      expect(got).to eq([[{"y" => 20}, {depth: 1, duration: 0.0}]])
-    end
-
-    it "alerts without depth when handlers have no keyword (1) arity" do
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)])
-      got = []
-      handler = ->(q) { got << q }
-      o = instance(handlers: [handler])
-      o.setup
-      o.check
-      expect(got).to eq([{"y" => 20}])
+      expect(o.handler.ups).to match_array([
+                                             [{"y" => 20}, 1, 0, {}],
+                                             [{"y" => 20}, 2, be > 0.05, {}],
+                                           ])
     end
 
     it "noops if recently alerted" do
-      expect(Sidekiq::Queue).to receive(:all).
-        twice.
-        and_return([fake_q("x", 1), fake_q("y", 20)])
       now = Time.now
-      o = instance(alert_interval: 120)
-      expect(o).to receive(:alert_test).twice
+      o = new_autoscaler(alert_interval: 120, latencies: {"x" => 1, "y" => 20})
       o.setup
       Timecop.freeze(now) { o.check }
       Timecop.freeze(now + 60) { o.check }
       Timecop.freeze(now + 180) { o.check }
+      expect(o.handler.ups).to match_array([
+                                             [{"y" => 20}, 1, 0, {}],
+                                             [{"y" => 20}, 2, 180, {}],
+                                           ])
     end
 
     it "invokes latency restored handlers once all queues have a latency at/below the threshold" do
-      expect(Sidekiq::Queue).to receive(:all).
-        and_return([fake_q("y", 20)], [fake_q("y", 3)], [fake_q("y", 2)])
-      o = instance(alert_interval: 0, latency_threshold: 2)
-      expect(o).to receive(:alert_test).with({"y" => 20}, duration: be_a(Float), depth: 1)
-      expect(o).to receive(:alert_test).with({"y" => 3}, duration: be_a(Float), depth: 2)
-      expect(o).to receive(:alert_restored_log).with(duration: be_a(Float), depth: 2)
+      o = new_autoscaler(
+        alert_interval: 0,
+        latency_threshold: 2,
+        latencies: [
+          {"y" => 20},
+          {"y" => 3},
+          {"y" => 2},
+        ],
+      )
       o.setup
       o.check
       o.check
       o.check
+      expect(o.handler.ups).to match_array([
+                                             [{"y" => 20}, 1, be_a(Numeric), {}],
+                                             [{"y" => 3}, 2, be_a(Numeric), {}],
+                                           ])
+      expect(o.handler.downs).to match_array([
+                                               [2, be_a(Numeric), {}],
+                                             ])
     end
 
-    it "persists across instances" do
-      expect(Sidekiq::Queue).to receive(:all).and_return(
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 1)],
-        [fake_q("y", 20)],
-      )
+    it "persists across new_autoscalers" do
+      checker = Amigo::Autoscaler::Checkers::Fake.new([
+                                                        {"y" => 20},
+                                                        {"y" => 20},
+                                                        {"y" => 1},
+                                                        {"y" => 20},
+                                                      ])
+      handler = Amigo::Autoscaler::Handlers::Fake.new
       t = Time.at(100)
       Timecop.freeze(t) do
-        o1 = instance(alert_interval: 0)
-        expect(o1).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+        o1 = new_autoscaler(alert_interval: 0, handler:, checker:)
         o1.setup
         o1.check
       end
 
       Timecop.freeze(t + 10) do
-        o2 = instance(alert_interval: 0)
-        expect(o2).to receive(:alert_test).with({"y" => 20}, duration: 10, depth: 2)
+        o2 = new_autoscaler(alert_interval: 0, handler:, checker:)
         o2.setup
         o2.check
       end
 
       Timecop.freeze(t + 20) do
-        o3 = instance(alert_interval: 0)
-        expect(o3).to receive(:alert_restored_log).with(duration: 20, depth: 2)
+        o3 = new_autoscaler(alert_interval: 0, handler:, checker:)
         o3.setup
         o3.check
       end
 
       Timecop.freeze(t + 30) do
-        o4 = instance(alert_interval: 0)
-        expect(o4).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
+        o4 = new_autoscaler(alert_interval: 0, handler:, checker:)
         o4.setup
         o4.check
         expect(o4.fetch_persisted).to have_attributes(
@@ -209,11 +196,20 @@ RSpec.describe Amigo::Autoscaler do
           latency_event_started_at: Time.at(130),
         )
       end
+
+      expect(handler.ups).to match_array([
+                                           [{"y" => 20}, 1, 0, {}],
+                                           [{"y" => 20}, 1, 0, {}],
+                                           [{"y" => 20}, 2, 10, {}],
+                                         ])
+      expect(handler.downs).to match_array([
+                                             [2, 20, {}],
+                                           ])
     end
 
     describe "when an unhandled exception occurs" do
       it "logs and kills the thread" do
-        o = instance(hostname_regex: /.*/)
+        o = new_autoscaler(hostname_regex: /.*/)
         expect(o).to receive(:alert_interval).and_raise("hi")
         expect(o).to receive(:check).and_wrap_original do |m, *args|
           o.polling_thread.report_on_exception = false
@@ -232,7 +228,7 @@ RSpec.describe Amigo::Autoscaler do
         cb = lambda { |e|
           calls << e
         }
-        o = instance(hostname_regex: /.*/, on_unhandled_exception: cb)
+        o = new_autoscaler(hostname_regex: /.*/, on_unhandled_exception: cb)
         err = RuntimeError.new("hi")
         expect(o).to receive(:alert_interval).and_raise(err)
         expect(o).to receive(:check).and_wrap_original do |m, *args|
@@ -254,7 +250,7 @@ RSpec.describe Amigo::Autoscaler do
           calls << e
           true if calls.size < 3
         }
-        o = instance(hostname_regex: /.*/, on_unhandled_exception: cb)
+        o = new_autoscaler(hostname_regex: /.*/, on_unhandled_exception: cb)
         expect(o).to receive(:alert_interval).and_raise("hi").thrice
         expect(o).to receive(:check).thrice.and_wrap_original do |m, *args|
           o.polling_thread.report_on_exception = false
@@ -271,94 +267,49 @@ RSpec.describe Amigo::Autoscaler do
     end
   end
 
-  describe "alert_log" do
+  describe Amigo::Autoscaler::Checkers::Sidekiq do
+    def fake_q(name, latency)
+      cls = Class.new do
+        define_method(:name) { name }
+        define_method(:latency) { latency }
+      end
+      return cls.new
+    end
+
+    it "calls the Sidekiq API for queues" do
+      ch = described_class.new
+      expect(ch.get_latencies).to eq({})
+
+      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
+      expect(ch.get_latencies).to eq({"x" => 1, "y" => 20})
+    end
+  end
+
+  describe Amigo::Autoscaler::Handlers::Chain do
     after(:each) do
       Amigo.reset_logging
     end
 
-    it "logs" do
-      Amigo.structured_logging = true
-      expect(Amigo.log_callback).to receive(:[]).
-        with(nil, :warn, "high_latency_queues", {queues: {"x" => 11, "y" => 24}, depth: 5, duration: 20.5})
-      instance.alert_log({"x" => 11, "y" => 24}, depth: 5, duration: 20.5)
-    end
-  end
-
-  describe "alert_sentry" do
-    before(:each) do
-      require "sentry-ruby"
-      @main_hub = Sentry.get_main_hub
-      Sentry.init do |config|
-        config.dsn = "http://public:secret@not-really-sentry.nope/someproject"
-      end
-    end
-
-    after(:each) do
-      Sentry.instance_variable_set(:@main_hub, nil)
-    end
-
-    it "calls Sentry" do
-      expect(Sentry.get_current_client).to receive(:capture_event).
-        with(
-          have_attributes(message: "Some queues have a high latency: x, y"),
-          have_attributes(extra: {high_latency_queues: {"x" => 11, "y" => 24}}),
-          include(:message),
-        )
-      instance.alert_sentry({"x" => 11, "y" => 24})
-    end
-  end
-
-  describe "alert callable" do
-    it "calls the callable" do
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
-      called_with = nil
-      handler = proc do |arg|
-        called_with = arg
-      end
-      o = instance(handlers: [handler])
+    it "chains handlers" do
+      h1 = Amigo::Autoscaler::Handlers::Fake.new
+      h2 = Amigo::Autoscaler::Handlers::Fake.new
+      h = described_class.new([h1, h2])
+      o = new_autoscaler(latencies: [{"x" => 1, "y" => 20}, {}], handler: h, alert_interval: 0)
       o.setup
       o.check
-      expect(called_with).to eq({"y" => 20})
+      o.check
+      expect(h1.ups).to match_array([[{"y" => 20}, 1, 0, {}]])
+      expect(h2.downs).to match_array([[1, be_a(Numeric), {}]])
     end
   end
 
-  describe "alert_restored_log" do
-    after(:each) do
-      Amigo.reset_logging
-    end
-
-    it "logs" do
-      Amigo.structured_logging = true
-      expect(Amigo.log_callback).to receive(:[]).
-        with(nil, :info, "high_latency_queues_restored", {depth: 2, duration: 10.5})
-      instance.alert_restored_log(depth: 2, duration: 10.5)
-    end
-  end
-
-  def listkeys = Sidekiq.redis { |c| c.call("KEYS", "*") }
-
-  it "can delete its persisted fields" do
-    expect(listkeys).to be_empty
-    expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
-    o = instance
-    expect(o).to receive(:alert_test).with({"y" => 20}, duration: 0, depth: 1)
-    o.setup
-    o.check
-    expect(listkeys).to contain_exactly(
-      "amigo/autoscaler/depth", "amigo/autoscaler/last_alerted", "amigo/autoscaler/latency_event_started",
-    )
-    o.unpersist
-    expect(listkeys).to be_empty
-  end
-
-  describe "Heroku" do
+  describe Amigo::Autoscaler::Handlers::Heroku do
     let(:heroku) { PlatformAPI.connect_oauth("abc") }
     let(:appname) { "sushi" }
-    let(:autoscaler) { new_autoscaler }
 
-    def new_autoscaler
-      h = Amigo::Autoscaler::Heroku.new(heroku: heroku, app_id_or_app_name: appname)
-      return instance(handlers: [h.alert_callback], latency_restored_handlers: [h.restored_callback], alert_interval: 0)
+    def new_autoscaler(**kw)
+      h = Amigo::Autoscaler::Handlers::Heroku.new(client: heroku, formation: "worker", app_id_or_app_name: appname)
+      return super(handler: h, alert_interval: 0, **kw)
     end
 
     def resp(body)
@@ -375,22 +326,22 @@ RSpec.describe Amigo::Autoscaler do
         with(body: "{\"quantity\":1}").
         to_return(resp({}))
 
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)], [fake_q("y", 0)])
+      autoscaler = new_autoscaler(latencies: [{"y" => 20}, {"y" => 0}])
       autoscaler.setup
       autoscaler.check
-      expect(Sidekiq.redis { |r| r.get("amigo/autoscaler/heroku/active_event_initial_workers") }).to eq("1")
+      expect(Sidekiq.redis { |r| r.get("amigo/autoscaler/heroku/worker/active_event_initial_workers") }).to eq("1")
       autoscaler.check
       expect(reqinfo).to have_been_made
       expect(requp).to have_been_made
       expect(reqdown).to have_been_made
-      expect(listkeys).to_not include("amigo/autoscaler/heroku/active_event_initial_workers")
+      expect(listkeys).to_not include("amigo/autoscaler/heroku/worker/active_event_initial_workers")
     end
 
     it "does not scale if initial workers are 0" do
       reqinfo = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
         to_return(resp({quantity: 0}))
 
-      expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("y", 20)], [fake_q("y", 0)])
+      autoscaler = new_autoscaler(latencies: [{"y" => 20}, {"y" => 0}])
       autoscaler.setup
       autoscaler.check
       autoscaler.check
@@ -410,13 +361,13 @@ RSpec.describe Amigo::Autoscaler do
         with(body: "{\"quantity\":1}").
         to_return(resp({}))
 
-      expect(Sidekiq::Queue).to receive(:all).and_return(
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 0)],
-      )
+      autoscaler = new_autoscaler(latencies: [
+                                    {"y" => 20},
+                                    {"y" => 20},
+                                    {"y" => 20},
+                                    {"y" => 20},
+                                    {"y" => 0},
+                                  ])
       autoscaler.setup
       autoscaler.check
       autoscaler.check
@@ -429,7 +380,7 @@ RSpec.describe Amigo::Autoscaler do
       expect(reqdown).to have_been_made
     end
 
-    it "persists information about an ongoing latency event between instances" do
+    it "persists information about an ongoing latency event between new_autoscalers" do
       reqinfo = stub_request(:get, "https://api.heroku.com/apps/sushi/formation/worker").
         to_return(resp({quantity: 1}))
       requp1 = stub_request(:patch, "https://api.heroku.com/apps/sushi/formation/worker").
@@ -442,20 +393,20 @@ RSpec.describe Amigo::Autoscaler do
         with(body: "{\"quantity\":1}").
         to_return(resp({}))
 
-      expect(Sidekiq::Queue).to receive(:all).and_return(
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 20)],
-        [fake_q("y", 0)],
-      )
-      autoscaler1 = new_autoscaler
+      checker = Amigo::Autoscaler::Checkers::Fake.new([
+                                                        {"y" => 20},
+                                                        {"y" => 20},
+                                                        {"y" => 20},
+                                                        {"y" => 20},
+                                                        {"y" => 0},
+                                                      ])
+      autoscaler1 = new_autoscaler(checker:)
       autoscaler1.setup
       autoscaler1.check
       autoscaler1.check
       autoscaler1.check
 
-      autoscaler2 = new_autoscaler
+      autoscaler2 = new_autoscaler(checker:)
       autoscaler2.setup
       autoscaler2.check
       autoscaler2.check
@@ -475,12 +426,12 @@ RSpec.describe Amigo::Autoscaler do
         with(body: "{\"quantity\":1}").
         to_return(resp({}), resp({}))
 
-      expect(Sidekiq::Queue).to receive(:all).and_return(
-        [fake_q("y", 20)],
-        [fake_q("y", 0)],
-        [fake_q("y", 20)],
-        [fake_q("y", 0)],
-      )
+      autoscaler = new_autoscaler(latencies: [
+                                    {"y" => 20},
+                                    {"y" => 0},
+                                    {"y" => 20},
+                                    {"y" => 0},
+                                  ])
       autoscaler.setup
       autoscaler.check
       autoscaler.check
@@ -491,5 +442,65 @@ RSpec.describe Amigo::Autoscaler do
       expect(requp1).to have_been_made.times(2)
       expect(reqdown1).to have_been_made.times(2)
     end
+  end
+
+  describe Amigo::Autoscaler::Handlers::Log do
+    after(:each) do
+      Amigo.reset_logging
+    end
+
+    it "logs on scale up and down" do
+      Amigo.structured_logging = true
+      expect(Amigo.log_callback).to receive(:[]).
+        with(nil, :warn, "high_latency_queues", {queues: {"x" => 11, "y" => 24}, depth: 1, duration: 0.0}).ordered
+      expect(Amigo.log_callback).to receive(:[]).
+        with(nil, :info, "high_latency_queues_restored", {depth: 1, duration: be_a(Numeric)}).ordered
+      h = described_class.new
+      autoscaler = new_autoscaler(latencies: [{"x" => 11, "y" => 24}, {}], handler: h, alert_interval: 0)
+      autoscaler.setup
+      autoscaler.check
+      autoscaler.check
+    end
+  end
+
+  describe Amigo::Autoscaler::Handlers::Sentry do
+    before(:each) do
+      require "sentry-ruby"
+      @main_hub = Sentry.get_main_hub
+      Sentry.init do |config|
+        config.dsn = "http://public:secret@not-really-sentry.nope/someproject"
+      end
+    end
+
+    after(:each) do
+      Sentry.instance_variable_set(:@main_hub, nil)
+    end
+
+    it "calls Sentry" do
+      expect(Sentry.get_current_client).to receive(:capture_event).
+        with(
+          have_attributes(message: "Some queues have a high latency: x, y"),
+          have_attributes(extra: {high_latency_queues: {"x" => 11, "y" => 24}, duration: 0, depth: 1}),
+          include(:message),
+        )
+      handler = described_class.new
+      autoscaler = new_autoscaler(latencies: {"x" => 11, "y" => 24}, handler:)
+      autoscaler.setup
+      autoscaler.check
+    end
+  end
+
+  def listkeys = Sidekiq.redis { |c| c.call("KEYS", "*") }
+
+  it "can delete its persisted fields" do
+    expect(listkeys).to be_empty
+    o = new_autoscaler(latencies: {"x" => 1, "y" => 20})
+    o.setup
+    o.check
+    expect(listkeys).to contain_exactly(
+      "amigo/autoscaler/depth", "amigo/autoscaler/last_alerted", "amigo/autoscaler/latency_event_started",
+    )
+    o.unpersist
+    expect(listkeys).to be_empty
   end
 end
