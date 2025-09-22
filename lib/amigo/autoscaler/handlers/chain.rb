@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "amigo/autoscaler"
+
 module Amigo
   class Autoscaler
     module Handlers

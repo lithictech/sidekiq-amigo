@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "sidekiq/api"
+require "amigo/autoscaler"
 
 module Amigo
   class Autoscaler

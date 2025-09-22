@@ -2,6 +2,8 @@
 
 require "sidekiq/api"
 
+require "amigo/autoscaler"
+
 module Amigo
   class Autoscaler
     module Checkers
