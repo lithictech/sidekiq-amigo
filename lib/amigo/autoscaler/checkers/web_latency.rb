@@ -7,7 +7,12 @@ module Amigo
     module Checkers
       class WebLatency < Amigo::Autoscaler::Checker
         NAMESPACE = "amigo/autoscaler/web_latency"
+        # The number of seconds requests are we averaging across.
         WINDOW = 60
+        # The number of seconds above which we have confidence in latency measurements.
+        # Without this window, a single request (without any other requests) could create a latency event.
+        # We need to see requests from this many seconds before feeling confident.
+        MINIMUM_CONFIDENCE_WINDOW = 30
 
         # Set the latency.
         # @param redis [RedisClient::Common] Redis connection.
@@ -31,19 +36,26 @@ module Amigo
 
         def get_latencies
           now = Time.now.to_i
-          keys = (now - 59..now).map { |t| "#{@namespace}/latencies:#{t}" }
-          counts = 0
-          sums = 0
+          window = (now - (WINDOW - 1))..now
+          keys = window.map { |bucket| "#{@namespace}/latencies:#{bucket}" }
           results = @redis.pipelined do |pipeline|
             keys.each do |k|
               pipeline.call("HMGET", k, "count", "sum")
             end
           end
-          results.each do |count, sum|
+          counts = 0
+          sums = 0
+          first_seen_bucket = nil
+          last_seen_bucket = nil
+          results.zip(window).each do |(count, sum), bucket|
+            next unless count # No results for this bucket
             counts += count.to_i
-            sums   += sum.to_i
+            sums += sum.to_i
+            first_seen_bucket ||= bucket
+            last_seen_bucket = bucket
           end
-          return {} if counts.zero?
+          return {} if first_seen_bucket.nil? || counts.zero?
+          return {} if (last_seen_bucket - first_seen_bucket) < MINIMUM_CONFIDENCE_WINDOW
           latency = sums.to_f / counts
           return {"web" => latency.to_f / 1000}
         end
