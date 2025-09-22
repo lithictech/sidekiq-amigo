@@ -26,7 +26,7 @@ Gem::Specification.new do |s|
   s.add_development_dependency("rubocop-performance", "~> 1.16")
   s.add_development_dependency("sentry-ruby", "~> 5")
   s.add_development_dependency("simplecov", "~> 0.22")
-  s.add_development_dependency("simplecov-cobertura", "~> 2.1")
+  s.add_development_dependency("simplecov-cobertura", "~> 3.1")
   s.add_development_dependency("timecop", "~> 0")
   s.add_development_dependency("webmock", "> 0")
   s.metadata["rubygems_mfa_required"] = "true"

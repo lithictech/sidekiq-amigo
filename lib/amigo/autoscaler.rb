@@ -4,37 +4,37 @@ require "sidekiq/api"
 
 require "amigo"
 
-# When queues achieve a latency that is too high,
-# take some action.
+# Generic autoscaling handler that will check for latency
+# and take an action.
+# For Sidekiq on Heroku for instance,
+# this means checking queues for a latency above a threshold, and adding workers up to a limit.
+#
 # You should start this up at Web application startup:
 #
 #   # puma.rb or similar
-#   Amigo::Autoscaler.new.start
+#   checker = Amigo::Autoscaler::Checkers::SidekiqLatency.new
+#   heroku_client = PlatformAPI.connect_oauth(ENV['MYAPP_HEROKU_OAUTH_TOKEN'])
+#   handler = Amigo::Autoscaler::Handlers::Heroku.new(client: heroku_client, formation: 'worker')
+#   Amigo::Autoscaler.new(checker:, handler:).start
 #
 # When latency grows beyond +latency_threshold+,
 # a "high latency event" is started.
-# Some action is taken, which is defined by the +handlers+ argument.
-# This includes logging, alerting, and/or autoscaling.
+# Some action should be taken, which is handled by the handler's +scale_up+ method.
+# This usually includes logging, alerting, and/or autoscaling.
 #
 # When latency returns to normal (defined by +latency_restored_threshold+),
 # the high latency event finishes.
-# Some additional action is taken, which is defined by the +latency_restored_handlers+ argument.
+# Some additional action is taken, handled by the handler's +scale_down+ method.
 # Usually this is logging, and/or returning autoscaling to its original status.
 #
 # There are several parameters to control behavior, such as how often polling is done,
 # how often alerting/scaling is done, and more.
-#
-# As an example autoscaler that includes actual resource scaling,
-# check out +Amigo::Autoscaler::Heroku+.
-# Its ideas can easily be expanded to other platforms.
 #
 # Note that +Autoscaler+ maintains its state over multiple processes;
 # it needs to keep track of high latency events even if the process running the autoscaler
 # (usually a web process) restarts.
 module Amigo
   class Autoscaler
-    class InvalidHandler < StandardError; end
-
     # Struct representing data serialized to Redis.
     # Useful for diagnostics. Can be retried with +fetch_persisted+.
     # @!attribute last_alerted_at [Time] 0-time if there is no recent alert.
@@ -56,49 +56,32 @@ module Amigo
     # are generally easier to find).
     # @return [Regexp]
     attr_reader :hostname_regex
-    # Methods to call when alerting, as strings/symbols or procs.
-    # Valid string values are 'log' and 'sentry' (requires Sentry to be required already).
-    # Anything that responds to +call+ will be invoked with:
-    # - Positional argument which is a +Hash+ of `{queue name => latency in seconds}`
-    # - Keyword argument +:depth+: Number of alerts as part of this latency event.
-    #   For example, the first alert has a depth of 1, and if latency stays high,
-    #   it'll be 2 on the next call, etc. +depth+ can be used to incrementally provision
-    #   additional processing capacity, and stop adding capacity at a certain depth
-    #   to avoid problems with too many workers (like excessive DB load).
-    # - Keyword argument +:duration+: Number of seconds since this latency spike started.
-    # - Additional undefined keywords. Handlers should accept additional options,
-    #   like via `**kw` or `opts={}`, for compatibility.
-    # @return [Array<String,Symbol,Proc,#call>]
-    attr_reader :handlers
     # Only alert this often.
     # For example, with poll_interval of 10 seconds
     # and alert_interval of 200 seconds,
     # we'd alert once and then 210 seconds later.
     # @return [Integer]
     attr_reader :alert_interval
+
     # After an alert happens, what latency should be considered "back to normal" and
-    # +latency_restored_handlers+ will be called?
+    # +scale_down+ will be called?
     # In most cases this should be the same as (and defaults to) +latency_threshold+
     # so that we're 'back to normal' once we're below the threshold.
     # It may also commonly be 0, so that the callback is fired when the queue is entirely clear.
     # Note that, if +latency_restored_threshold+ is less than +latency_threshold+,
     # while the latency is between the two, no alerts will fire.
     attr_reader :latency_restored_threshold
-    # Methods to call when a latency of +latency_restored_threshold+ is reached
-    # (ie, when we get back to normal latency after a high latency event).
-    # Valid string values are 'log'.
-    # Usually this handler will deprovision capacity procured as part of the alert +handlers+.
-    # Anything that responds to +call+ will be invoked with:
-    # - Keyword +:depth+, the number of times an alert happened before
-    #   the latency spike was resolved.
-    # - Keyword +:duration+, the number of seconds for the latency spike has been going on.
-    # - Additional undefined keywords. Handlers should accept additional options,
-    #   like via `**kw`, for compatibility.
-    # @return [Array<String,Symbol,Proc,#call>]
-    attr_reader :latency_restored_handlers
-    # Proc/callable called with (level, message, params={}).
-    # By default, use +Amigo.log+ (which logs to the Sidekiq logger).
-    attr_reader :log
+
+    # @return [Amigo::Autoscaler::Checker]
+    attr_reader :checker
+    # @return [Amigo::Autoscaler::Handler]
+    attr_reader :handler
+
+    # Store autoscaler keys in this Redis namespace.
+    # Note that if you are running multiple autoscalers for different services (web, worker),
+    # you will need different namespaces.
+    attr_reader :namespace
+
     # Proc called with an exception that occurs while the thread is running.
     # If the handler returns +true+, then the thread will keep going.
     # All other values will kill the thread, which breaks autoscaling.
@@ -108,15 +91,15 @@ module Amigo
     attr_reader :on_unhandled_exception
 
     def initialize(
+      handler:,
+      checker:,
       poll_interval: 20,
       latency_threshold: 5,
       hostname_regex: /^web\.1$/,
-      handlers: [:log],
       alert_interval: 120,
       latency_restored_threshold: latency_threshold,
-      latency_restored_handlers: [:log],
-      log: ->(level, message, params={}) { Amigo.log(nil, level, message, params) },
-      on_unhandled_exception: nil
+      on_unhandled_exception: nil,
+      namespace: "amigo/autoscaler"
     )
       raise ArgumentError, "latency_threshold must be > 0" if
         latency_threshold <= 0
@@ -124,15 +107,15 @@ module Amigo
         latency_restored_threshold.negative?
       raise ArgumentError, "latency_restored_threshold must be <= latency_threshold" if
         latency_restored_threshold > latency_threshold
+      @handler = handler
+      @checker = checker
       @poll_interval = poll_interval
       @latency_threshold = latency_threshold
       @hostname_regex = hostname_regex
-      @handlers = handlers.freeze
       @alert_interval = alert_interval
       @latency_restored_threshold = latency_restored_threshold
-      @latency_restored_handlers = latency_restored_handlers.freeze
-      @log = log
       @on_unhandled_exception = on_unhandled_exception
+      @namespace = namespace
     end
 
     # @return [Thread]
@@ -143,8 +126,6 @@ module Amigo
     def setup
       # Store these as strings OR procs, rather than grabbing self.method here.
       # It gets extremely hard ot test if we capture the method here.
-      @alert_methods = self.handlers.map { |a| _handler_to_method("alert_", a) }
-      @restored_methods = self.latency_restored_handlers.map { |a| _handler_to_method("alert_restored_", a) }
       @stop = false
       persisted = self.fetch_persisted
       @last_alerted = persisted.last_alerted_at
@@ -181,24 +162,13 @@ module Amigo
       end
     end
 
-    protected def namespace
-      return "amigo/autoscaler"
-    end
-
-    private def _handler_to_method(prefix, a)
-      return a if a.respond_to?(:call)
-      method_name = "#{prefix}#{a.to_s.strip}".to_sym
-      raise InvalidHandler, a.inspect unless (meth = self.method(method_name))
-      return meth
-    end
-
     def start
       raise "already started" unless @polling_thread.nil?
 
       hostname = ENV.fetch("DYNO") { Socket.gethostname }
       return false unless self.hostname_regex.match?(hostname)
 
-      self._log(:info, "async_autoscaler_starting")
+      self._debug(:info, "async_autoscaler_starting")
       self.setup
       @polling_thread = Thread.new do
         until @stop
@@ -216,7 +186,7 @@ module Amigo
     def check
       self._check
     rescue StandardError => e
-      self._log(:error, "async_autoscaler_unhandled_error", exception: e)
+      self._debug(:error, "async_autoscaler_unhandled_error", exception: e)
       handled = self.on_unhandled_exception&.call(e)
       raise e unless handled.eql?(true)
     end
@@ -225,22 +195,18 @@ module Amigo
       now = Time.now
       skip_check = now < (@last_alerted + self.alert_interval)
       if skip_check
-        self._log(:debug, "async_autoscaler_skip_check")
+        self._debug(:debug, "async_autoscaler_skip_check")
         return
       end
-      self._log(:info, "async_autoscaler_check")
-      high_latency_queues = Sidekiq::Queue.all.
-        map { |q| [q.name, q.latency] }.
-        select { |(_, latency)| latency > self.latency_threshold }.
-        to_h
+      self._debug(:info, "async_autoscaler_check")
+      high_latency_queues = self.checker.get_latencies.
+        select { |_, latency| latency > self.latency_threshold }
       if high_latency_queues.empty?
         # Whenever we are in a latency event, we have a depth > 0. So a depth of 0 means
         # we're not in a latency event, and still have no latency, so can noop.
         return if @depth.zero?
         # We WERE in a latency event, and now we're not, so report on it.
-        @restored_methods.each do |m|
-          m.call(depth: @depth, duration: (Time.now - @latency_event_started).to_f)
-        end
+        self.handler.scale_down(depth: @depth, duration: (Time.now - @latency_event_started).to_f)
         # Reset back to 0 depth so we know we're not in a latency event.
         @depth = 0
         @latency_event_started = Time.at(0)
@@ -260,38 +226,47 @@ module Amigo
       end
       # Alert each handler. For legacy reasons, we support handlers that accept
       # ({queues and latencies}) and ({queues and latencies}, {}keywords}).
-      kw = {depth: @depth, duration: duration}
-      @alert_methods.each do |m|
-        if m.respond_to?(:arity) && m.arity == 1
-          m.call(high_latency_queues)
-        else
-          m.call(high_latency_queues, **kw)
-        end
-      end
+      @handler.scale_up(high_latency_queues, depth: @depth, duration: duration)
       @last_alerted = now
       self.persist
     end
 
-    def alert_sentry(names_and_latencies)
-      Sentry.with_scope do |scope|
-        scope.set_extras(high_latency_queues: names_and_latencies)
-        names = names_and_latencies.map(&:first).sort.join(", ")
-        Sentry.capture_message("Some queues have a high latency: #{names}")
-      end
+    def _debug(lvl, msg, **kw)
+      return unless ENV["DEBUG"]
+      Amigo.log(nil, lvl, msg, kw)
     end
 
-    def alert_log(names_and_latencies, depth:, duration:)
-      self._log(:warn, "high_latency_queues", queues: names_and_latencies, depth: depth, duration: duration)
+    class Checker
+      # Return relevant latencies for this checker.
+      # This could be the latencies of each Sidekiq queue, or web latencies, etc.
+      # @return [Hash] Key is the queue name (or some other value); value is the latency in seconds.
+      def get_latencies = raise NotImplementedError
     end
 
-    def alert_test(_names_and_latencies, _opts={}); end
+    class Handler
+      # Called when a latency event starts, and as it fails to resolve.
+      # @param checked_latencies [Hash] The +Hash+ returned from +Amigo::Autoscaler::Handler#check+.
+      #   For Sidekiq, this will look like `{queue name => latency in seconds}`
+      # @param depth [Integer] Number of alerts as part of this latency event.
+      #   For example, the first alert has a depth of 1, and if latency stays high,
+      #   it'll be 2 on the next call, etc. +depth+ can be used to incrementally provision
+      #   additional processing capacity, and stop adding capacity at a certain depth
+      #   to avoid problems with too many workers (like excessive DB load).
+      # @param duration [Float] Number of seconds since this latency spike started.
+      # @param kw [Hash] Additional undefined keywords. Handlers should accept additional options,
+      #   like via `**kw` or `opts={}`, for compatibility.
+      # @return [Array<String,Symbol,Proc,#call>]
+      def scale_up(checked_latencies, depth:, duration:, **kw) = raise NotImplementedError
 
-    def alert_restored_log(depth:, duration:)
-      self._log(:info, "high_latency_queues_restored", depth: depth, duration: duration)
-    end
-
-    protected def _log(level, msg, **kw)
-      self.log[level, msg, kw]
+      # Called when a latency of +latency_restored_threshold+ is reached
+      # (ie, when we get back to normal latency after a high latency event).
+      # Usually this handler will deprovision capacity procured as part of the +scale_up+.
+      # @param depth [Integer] The number of times an alert happened before
+      #   the latency spike was resolved.
+      # @param duration [Float] The number of seconds for the latency spike has been going on.
+      # @param kw [Hash] Additional undefined keywords. Handlers should accept additional options,
+      #   like via `**kw` or `opts={}`, for compatibility.
+      def scale_down(depth:, duration:, **kw) = raise NotImplementedError
     end
   end
 end
