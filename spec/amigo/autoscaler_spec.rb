@@ -5,6 +5,7 @@ require "timecop"
 require "amigo/autoscaler"
 require "amigo/autoscaler/checkers/fake"
 require "amigo/autoscaler/checkers/sidekiq"
+require "amigo/autoscaler/checkers/web_latency"
 require "amigo/autoscaler/handlers/chain"
 require "amigo/autoscaler/handlers/fake"
 require "amigo/autoscaler/handlers/heroku"
@@ -263,6 +264,53 @@ RSpec.describe Amigo::Autoscaler do
         end
         ::RSpec::Expectations.fail_with("thread never died") unless dead
         expect(calls).to have_attributes(length: 3)
+      end
+    end
+  end
+
+  describe Amigo::Autoscaler::Checkers::WebLatency do
+    let(:redis) do
+      r = nil
+      Sidekiq.redis { |rc| r = rc }
+      r
+    end
+
+    describe "middleware" do
+      let(:app) { proc { [200, {}, []] } }
+
+      it "writes latencies above the threshold to Redis" do
+        # 50ms threshold
+        mw = described_class::Middleware.new(app, redis:, threshold: 0.05)
+        t = Time.at(5)
+        # First request is 40ms, second is 100ms
+        expect(Process).to receive(:clock_gettime).and_return(0, 0.04, 0.05, 0.15)
+        Timecop.freeze(t) do
+          expect(mw.call({})).to eq([200, {}, []])
+          expect(redis.hgetall("amigo/autoscaler/web_latency/latencies:5")).to eq({})
+          expect(mw.call({})).to eq([200, {}, []])
+          expect(redis.hgetall("amigo/autoscaler/web_latency/latencies:5")).to eq({"count" => "1", "sum" => "100"})
+        end
+      end
+    end
+
+    it "uses the average latency of the last 60 seconds" do
+      namespace = "fake-ns"
+      # These should be skipped, they're large enough to skew everything if they show up.
+      described_class.set_latency(redis:, namespace:, at: 1, duration: 5)
+      described_class.set_latency(redis:, namespace:, at: 2, duration: 5)
+
+      (30..50).each do |at|
+        described_class.set_latency(redis:, namespace:, at:, duration: 0.01)
+      end
+
+      ch = described_class.new(redis:, namespace:)
+      Timecop.freeze(Time.at(70)) do
+        expect(ch.get_latencies).to eq({"web" => 0.01})
+      end
+
+      # Now we've gone far enough that nothing recent shows up.
+      Timecop.freeze(Time.at(500)) do
+        expect(ch.get_latencies).to eq({})
       end
     end
   end
