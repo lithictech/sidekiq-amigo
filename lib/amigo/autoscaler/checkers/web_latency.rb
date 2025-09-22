@@ -18,9 +18,9 @@ module Amigo
           bucket = at.to_i
           key = "#{namespace}/latencies:#{bucket}"
           duration_ms = (duration * 1000).round
-          redis.hincrby(key, "count", 1)
-          redis.hincrby(key, "sum", duration_ms)
-          # redis.expire(key, WINDOW + 1)
+          redis.call("HINCRBY", key, "count", 1)
+          redis.call("HINCRBY", key, "sum", duration_ms)
+          redis.call("EXPIRE", key, WINDOW + 1)
         end
 
         def initialize(redis:, namespace: NAMESPACE)
@@ -36,7 +36,7 @@ module Amigo
           sums = 0
           results = @redis.pipelined do |pipeline|
             keys.each do |k|
-              pipeline.hmget(k, "count", "sum")
+              pipeline.call("HMGET", k, "count", "sum")
             end
           end
           results.each do |count, sum|
@@ -64,15 +64,15 @@ module Amigo
             status, headers, body = @app.call(env)
             duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start
             if duration > @threshold
-              bucket = Time.now.to_i
-              key = "#{@namespace}/latencies:#{bucket}"
-              duration_ms = (duration * 1000).round
               begin
-                @redis.hincrby(key, "count", 1)
-                @redis.hincrby(key, "sum", duration_ms)
-                @redis.expire(key, 61)
-              rescue StandardError
-                nil
+                WebLatency.set_latency(
+                  redis: @redis,
+                  namespace: @namespace,
+                  at: Time.now,
+                  duration:,
+                )
+              rescue StandardError => e
+                Amigo.log(nil, :error, "web_latency_error", exception: e)
               end
             end
             [status, headers, body]
