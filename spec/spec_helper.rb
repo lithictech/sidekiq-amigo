@@ -1,8 +1,11 @@
 # frozen_string_literal: true
 
-# See https://github.com/eliotsykes/rspec-rails-examples/blob/master/spec/spec_helper.rb
-# See http://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
-#
+require "simplecov"
+require "simplecov-cobertura"
+
+(SimpleCov.formatter = SimpleCov::Formatter::CoberturaFormatter) if ENV["CI"]
+SimpleCov.start if ENV["CI"] || ENV["COVERAGE"]
+
 require "rspec"
 require "rspec/support/object_formatter"
 require "sidekiq/testing"
