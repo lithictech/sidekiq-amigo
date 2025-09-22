@@ -70,7 +70,10 @@ RSpec.describe Amigo do
         described_class.on_publish_error = ->(ex) { spy.call(ex) }
         described_class.register_subscriber { raise ex }
         expect(Amigo).to receive(:log).with(
-          nil, :error, "amigo_subscriber_hook_error", hash_including(error: ex, hook: be_a(Proc), event: be_a(Hash)),
+          nil,
+          :error,
+          "amigo_subscriber_hook_error",
+          hash_including(error: ex, hook: match(%r{amigo/amigo_spec\.rb:\d+$}), event: be_a(Hash)),
         )
         described_class.publish("hi")
         expect(spy.calls).to contain_exactly([ex])

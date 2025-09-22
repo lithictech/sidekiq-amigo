@@ -164,7 +164,12 @@ module Amigo
       self.subscribers.to_a.each do |hook|
         hook.call(ev)
       rescue StandardError => e
-        self.log(nil, :error, "amigo_subscriber_hook_error", error: e, hook: hook, event: ev&.as_json)
+        self.log(
+          nil,
+          :error,
+          "amigo_subscriber_hook_error",
+          error: e, hook: _block_repr(hook), event: ev&.as_json,
+        )
         raise e if self.on_publish_error.nil?
         if self.on_publish_error.respond_to?(:arity) && self.on_publish_error.arity == 1
           self.on_publish_error.call(e)
@@ -178,9 +183,16 @@ module Amigo
     # If a subscriber errors, on_publish_error is called with the exception, event, and subscriber.
     def register_subscriber(&block)
       raise LocalJumpError, "no block given" unless block
-      self.log nil, :info, "amigo_installed_subscriber", block: block
+      self.log nil, :info, "amigo_installed_subscriber", block: _block_repr(block)
       self.subscribers << block
       return block
+    end
+
+    private def _block_repr(block)
+      return block.to_s unless block.respond_to?(:source_location)
+      loc = block.source_location
+      return block.to_s unless loc
+      return loc.join(":")
     end
 
     def unregister_subscriber(block_ref)
