@@ -527,12 +527,31 @@ RSpec.describe Amigo::Autoscaler do
     it "calls Sentry" do
       expect(Sentry.get_current_client).to receive(:capture_event).
         with(
-          have_attributes(message: "Some queues have a high latency: x, y"),
+          have_attributes(message: "Some queues have a high latency"),
           have_attributes(extra: {high_latency_queues: {"x" => 11, "y" => 24}, duration: 0, depth: 1}),
           include(:message),
         )
       handler = described_class.new
       autoscaler = new_autoscaler(latencies: {"x" => 11, "y" => 24}, handler:)
+      autoscaler.setup
+      autoscaler.check
+    end
+
+    it "has its own interval" do
+      expect(Sentry.get_current_client).to receive(:capture_event).twice
+      handler = described_class.new(interval: 45)
+      autoscaler = new_autoscaler(latencies: {"x" => 11, "y" => 24}, handler:, alert_interval: 0)
+      autoscaler.setup
+      t = Time.now
+      Timecop.freeze(t) { autoscaler.check }
+      Timecop.freeze(t + 30) { autoscaler.check }
+      Timecop.freeze(t + 90) { autoscaler.check }
+    end
+
+    it "handles nil unconfigured Sentry" do
+      Sentry.instance_variable_set(:@main_hub, nil)
+      handler = described_class.new(interval: 0)
+      autoscaler = new_autoscaler(latencies: {"x" => 11, "y" => 24}, handler:, alert_interval: 0)
       autoscaler.setup
       autoscaler.check
     end
