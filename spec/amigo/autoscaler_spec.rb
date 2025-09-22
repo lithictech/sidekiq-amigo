@@ -321,14 +321,14 @@ RSpec.describe Amigo::Autoscaler do
 
     describe "with a Sidekiq redis" do
       let(:redis) { sidekiq_redis }
+      let(:namespace) { "fake-ns" }
 
       it "uses the average latency of the last 60 seconds" do
-        namespace = "fake-ns"
         # These should be skipped, they're large enough to skew everything if they show up.
         described_class.set_latency(redis:, namespace:, at: 1, duration: 5)
         described_class.set_latency(redis:, namespace:, at: 2, duration: 5)
 
-        (30..50).each do |at|
+        (30..65).each do |at|
           described_class.set_latency(redis:, namespace:, at:, duration: 0.01)
         end
 
@@ -342,14 +342,34 @@ RSpec.describe Amigo::Autoscaler do
           expect(ch.get_latencies).to eq({})
         end
       end
+
+      it "does not mark high latency if the spread between the first and last sample is too short" do
+        # Set latencies at 10 and 20 seconds ago. 10 seconds is not enough to be confident in latency.
+        described_class.set_latency(redis:, namespace:, at: 10, duration: 1)
+        described_class.set_latency(redis:, namespace:, at: 20, duration: 1)
+
+        ch = described_class.new(redis:, namespace:)
+        Timecop.freeze(Time.at(60)) do
+          expect(ch.get_latencies).to eq({})
+        end
+
+        # Set a latency at 41 seconds (10s + 31). 30s is the minimum window to have confidence,
+        # so we should see latency reported now.
+
+        described_class.set_latency(redis:, namespace:, at: 41, duration: 1)
+        Timecop.freeze(Time.at(60)) do
+          expect(ch.get_latencies).to eq({"web" => 1})
+        end
+      end
     end
 
     describe "with a RedisClient redis" do
       let(:redis) { rc_redis }
+      let(:namespace) { "fake-ns" }
 
       it "uses the average latency of the last 60 seconds" do
-        namespace = "fake-ns"
-        described_class.set_latency(redis:, namespace:, at: 50, duration: 0.01)
+        described_class.set_latency(redis:, namespace:, at: 51, duration: 0.01)
+        described_class.set_latency(redis:, namespace:, at: 20, duration: 0.01)
 
         ch = described_class.new(redis:, namespace:)
         Timecop.freeze(Time.at(70)) do
