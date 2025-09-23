@@ -18,7 +18,9 @@ Gem::Specification.new do |s|
   s.files = Dir["lib/**/*.rb"]
   s.add_runtime_dependency("sidekiq", ">= 7")
   s.add_runtime_dependency("sidekiq-cron", "~> 2")
+  s.add_development_dependency("ostruct", "> 0")
   s.add_development_dependency("platform-api", "> 0")
+  s.add_development_dependency("puma", "~> 6")
   s.add_development_dependency("rack", "~> 3.1")
   s.add_development_dependency("rspec", "~> 3.10")
   s.add_development_dependency("rspec-core", "~> 3.10")
