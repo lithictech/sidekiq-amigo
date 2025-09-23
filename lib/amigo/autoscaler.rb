@@ -3,6 +3,7 @@
 require "sidekiq/api"
 
 require "amigo"
+require "amigo/threading_event"
 
 # Generic autoscaling handler that will check for latency
 # and take an action.
@@ -124,9 +125,7 @@ module Amigo
     end
 
     def setup
-      # Store these as strings OR procs, rather than grabbing self.method here.
-      # It gets extremely hard ot test if we capture the method here.
-      @stop = false
+      @thr_event = ThreadingEvent.new
       persisted = self.fetch_persisted
       @last_alerted = persisted.last_alerted_at
       @depth = persisted.depth
@@ -171,16 +170,17 @@ module Amigo
       self._debug(:info, "async_autoscaler_starting")
       self.setup
       @polling_thread = Thread.new do
-        until @stop
-          Kernel.sleep(self.poll_interval)
-          self.check unless @stop
+        loop do
+          @thr_event.wait(self.poll_interval)
+          break if @thr_event.set?
+          self.check
         end
       end
       return true
     end
 
     def stop
-      @stop = true
+      @thr_event.set
     end
 
     def check

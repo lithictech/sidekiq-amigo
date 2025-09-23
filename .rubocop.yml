@@ -91,6 +91,8 @@ Style/HashEachMethods:
   Enabled: false
 Style/NumericPredicate:
   AllowedMethods: ['where']
+Style/OptionalBooleanParameter:
+  Enabled: false
 Style/RedundantReturn:
   Enabled: false
 Style/RedundantSelf:
