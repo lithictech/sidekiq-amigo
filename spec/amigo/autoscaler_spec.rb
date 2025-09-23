@@ -1,11 +1,16 @@
 # frozen_string_literal: true
 
+require "ostruct"
+require "puma"
+require "puma/events"
+require "puma/plugin"
 require "timecop"
 
 require "amigo/autoscaler"
 require "amigo/autoscaler/checkers/chain"
 require "amigo/autoscaler/checkers/fake"
 require "amigo/autoscaler/checkers/sidekiq"
+require "amigo/autoscaler/checkers/puma_pool_usage"
 require "amigo/autoscaler/checkers/web_latency"
 require "amigo/autoscaler/handlers/chain"
 require "amigo/autoscaler/handlers/fake"
@@ -428,6 +433,37 @@ RSpec.describe Amigo::Autoscaler do
     end
   end
 
+  describe Amigo::Autoscaler::Checkers::PumaPoolUsage do
+    let(:redis) { RedisClient.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:22379/0")) }
+
+    let(:namespace) { "fake-ns" }
+
+    it "uses the average usage over the last 60 seconds" do
+      ch = described_class.new(redis:, namespace:)
+      expect(ch.get_pool_usage).to be_nil
+
+      ch.record(0, now: 1)
+      ch.record(0, now: 2)
+
+      (30..65).each do |now|
+        ch.record(0.1, now:)
+      end
+
+      Timecop.freeze(Time.at(70)) do
+        expect(ch.get_pool_usage).to eq(0.1)
+      end
+
+      Timecop.freeze(Time.at(500)) do
+        expect(ch.get_pool_usage).to be_nil
+      end
+    end
+
+    it "does not report latency" do
+      ch = described_class.new(redis:)
+      expect(ch.get_latencies).to eq({})
+    end
+  end
+
   describe Amigo::Autoscaler::Checkers::Sidekiq do
     def fake_q(name, latency)
       cls = Class.new do
@@ -702,5 +738,81 @@ RSpec.describe Amigo::Autoscaler do
     )
     o.unpersist
     expect(listkeys).to be_empty
+  end
+
+  describe "Puma amigo plugin" do
+    let(:checker) do
+      Amigo::Autoscaler::Checkers::PumaPoolUsage.new(
+        redis: RedisClient.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:22379/0")),
+        namespace: "fake-ns2",
+      )
+    end
+    let(:mock_events) { Puma::Events.new }
+    let(:mock_launcher) do
+      OpenStruct.new(
+        options: {
+          amigo_autoscaler_interval: 0.01,
+          amigo_puma_pool_usage_checker: checker,
+        },
+        stats: {busy_threads: 0, max_threads: 4, backlog: 0},
+        events: mock_events,
+        keyword_init: true,
+      )
+    end
+
+    let(:event) { Amigo::ThreadingEvent.new }
+    let(:recorded_stats) { [] }
+
+    it "adds a DSL" do
+      opts = {}
+      dsl = Puma::DSL.new(opts, nil)
+      dsl.amigo_autoscaler_interval(7)
+      dsl.amigo_puma_pool_usage_checker("hi")
+      expect(opts).to eq({amigo_autoscaler_interval: 7, amigo_puma_pool_usage_checker: "hi"})
+    end
+
+    it "gracefully exits by setting the sleep event on stop" do
+      pi = Puma::Plugins.find(:amigo).new
+      expect(pi).to_not receive(:log_pool_usage)
+      pi.start(mock_launcher)
+      mock_events.fire_on_stopped!
+      Puma::Plugins.fire_background
+      # This test will be flaky if the event is not set.
+      sleep(0.05)
+    end
+
+    it "logs pool usage each interval" do
+      mock_launcher.stats = {busy_threads: 2, max_threads: 4, backlog: 0}
+      pi = Puma::Plugins.find(:amigo).new
+      pi.start(mock_launcher)
+      expect(checker).to receive(:record) do |usage, **|
+        event.set
+        recorded_stats << usage
+      end
+      Puma::Plugins.fire_background
+      event.wait
+      expect(recorded_stats).to eq([0.5])
+    end
+
+    it "works in cluster mode" do
+      mock_launcher.stats = {worker_status: [{last_status: {busy_threads: 2, max_threads: 4, backlog: 0}}]}
+      pi = Puma::Plugins.find(:amigo).new
+      pi.start(mock_launcher)
+      expect(checker).to receive(:record) do |usage, **|
+        event.set
+        recorded_stats << usage
+      end
+      Puma::Plugins.fire_background
+      event.wait
+      expect(recorded_stats).to eq([0.5])
+    end
+
+    it "calculates a pool usage between 0 or 1, or greater if a backlog" do
+      pi = Puma::Plugins.find(:amigo).new
+      expect(pi.calculate_pool_usage({busy_threads: 0, max_threads: 4, backlog: 0})).to eq(0.0)
+      expect(pi.calculate_pool_usage({busy_threads: 2, max_threads: 4, backlog: 0})).to eq(0.5)
+      expect(pi.calculate_pool_usage({busy_threads: 3, max_threads: 4, backlog: 1})).to eq(1.0)
+      expect(pi.calculate_pool_usage({busy_threads: 4, max_threads: 4, backlog: 2})).to eq(1.5)
+    end
   end
 end
