@@ -43,12 +43,19 @@ module Amigo
     # @!attribute latency_event_started_at [Time] 0-time if not in a latency event.
     Persisted = Struct.new(:last_alerted_at, :depth, :latency_event_started_at)
 
-    # How often should Autoscaler check for latency?
+    # How often the Autoscaler checks for latency/usage statistics.
     # @return [Integer]
     attr_reader :poll_interval
-    # What latency should we alert on?
-    # @return [Integer]
+
+    # The latency, in seconds, that triggers an alert.
+    # @return [Numeric]
     attr_reader :latency_threshold
+
+    # The pool usage, as a float between 0 and 1 (or above), that triggers an alert.
+    # Note that usage-based autoscaling should generally not be used for background jobs.
+    # It is much more useful for web autoscaling, since it is more responsive than latency.
+    attr_reader :usage_threshold
+
     # What hosts/processes should this run on?
     # Looks at ENV['DYNO'] and Socket.gethostname for a match.
     # Default to only run on 'web.1', which is the first Heroku web dyno.
@@ -96,6 +103,7 @@ module Amigo
       checker:,
       poll_interval: 20,
       latency_threshold: 5,
+      usage_threshold: 1,
       hostname_regex: /^web\.1$/,
       alert_interval: 120,
       latency_restored_threshold: latency_threshold,
@@ -112,6 +120,7 @@ module Amigo
       @checker = checker
       @poll_interval = poll_interval
       @latency_threshold = latency_threshold
+      @usage_threshold = usage_threshold
       @hostname_regex = hostname_regex
       @alert_interval = alert_interval
       @latency_restored_threshold = latency_restored_threshold
@@ -201,7 +210,8 @@ module Amigo
       self._debug(:info, "async_autoscaler_check")
       high_latency_queues = self.checker.get_latencies.
         select { |_, latency| latency > self.latency_threshold }
-      if high_latency_queues.empty?
+      high_pool_usage = !(pu = self.checker.get_pool_usage).nil? && pu > self.usage_threshold
+      if high_latency_queues.empty? && !high_pool_usage
         # Whenever we are in a latency event, we have a depth > 0. So a depth of 0 means
         # we're not in a latency event, and still have no latency, so can noop.
         return if @depth.zero?
@@ -224,9 +234,7 @@ module Amigo
         @latency_event_started = Time.now
         duration = 0.0
       end
-      # Alert each handler. For legacy reasons, we support handlers that accept
-      # ({queues and latencies}) and ({queues and latencies}, {}keywords}).
-      @handler.scale_up(high_latency_queues, depth: @depth, duration: duration)
+      @handler.scale_up(high_latencies: high_latency_queues, depth: @depth, duration: duration, pool_usage: pu)
       @last_alerted = now
       self.persist
     end
@@ -239,14 +247,22 @@ module Amigo
     class Checker
       # Return relevant latencies for this checker.
       # This could be the latencies of each Sidekiq queue, or web latencies, etc.
+      # If this is a pool usage checker only, return {}.
       # @return [Hash] Key is the queue name (or some other value); value is the latency in seconds.
       def get_latencies = raise NotImplementedError
+
+      # Return the pool usage for this checker.
+      # Values should be between 0 and 1, with values over 1 meaning a backlog.
+      # If this is a latency checker only, or there is not enough information to report on pool usage, return nil.
+      # @return [nil,Float]
+      def get_pool_usage = raise NotImplementedError
     end
 
     class Handler
       # Called when a latency event starts, and as it fails to resolve.
-      # @param checked_latencies [Hash] The +Hash+ returned from +Amigo::Autoscaler::Handler#check+.
+      # @param high_latencies [Hash] The +Hash+ returned from +Amigo::Autoscaler::Handler#check+.
       #   For Sidekiq, this will look like `{queue name => latency in seconds}`
+      # @param pool_usage [Float,nil] The pool usage value from the checker, or nil.
       # @param depth [Integer] Number of alerts as part of this latency event.
       #   For example, the first alert has a depth of 1, and if latency stays high,
       #   it'll be 2 on the next call, etc. +depth+ can be used to incrementally provision
@@ -256,7 +272,7 @@ module Amigo
       # @param kw [Hash] Additional undefined keywords. Handlers should accept additional options,
       #   like via `**kw` or `opts={}`, for compatibility.
       # @return [Array<String,Symbol,Proc,#call>]
-      def scale_up(checked_latencies, depth:, duration:, **kw) = raise NotImplementedError
+      def scale_up(high_latencies:, pool_usage:, depth:, duration:, **kw) = raise NotImplementedError
 
       # Called when a latency of +latency_restored_threshold+ is reached
       # (ie, when we get back to normal latency after a high latency event).

@@ -15,12 +15,12 @@ module Amigo
           super()
         end
 
-        def scale_up(*args, **kw)
-          @chain.each { |c| c.scale_up(*args, **kw) }
+        def scale_up(**kw)
+          @chain.each { |c| c.scale_up(**kw) }
         end
 
-        def scale_down(*args, **kw)
-          @chain.each { |c| c.scale_down(*args, **kw) }
+        def scale_down(**kw)
+          @chain.each { |c| c.scale_down(**kw) }
         end
       end
     end

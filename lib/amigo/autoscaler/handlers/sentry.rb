@@ -20,12 +20,12 @@ module Amigo
           super()
         end
 
-        def scale_up(checked_latencies, depth:, duration:, **)
+        def scale_up(high_latencies:, depth:, duration:, pool_usage:, **)
           now = Time.now
           call_sentry = @last_alerted < (now - @interval)
           return unless call_sentry
           ::Sentry.with_scope do |scope|
-            scope&.set_extras(high_latency_queues: checked_latencies, depth:, duration:)
+            scope&.set_extras(high_latencies:, depth:, duration:, pool_usage:)
             ::Sentry.capture_message(@message, level: @level)
           end
           @last_alerted = now
