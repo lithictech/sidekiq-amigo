@@ -103,7 +103,7 @@ module Amigo
         # Potentially add another worker to the formation.
         # @return [:noscale, :maxscale, :scaled] One of :noscale (no +active_event_initial_workers+),
         #   :maxscale (+max_additional_workers+ reached), or :scaled.
-        def scale_up(_queues_and_latencies, depth:, **)
+        def scale_up(depth:, **)
           # When the scaling event starts (or if this is the first time we've seen it
           # but the event is already in progress), store how many workers we have.
           # It needs to be stored in redis so it persists if

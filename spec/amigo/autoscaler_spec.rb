@@ -3,6 +3,7 @@
 require "timecop"
 
 require "amigo/autoscaler"
+require "amigo/autoscaler/checkers/chain"
 require "amigo/autoscaler/checkers/fake"
 require "amigo/autoscaler/checkers/sidekiq"
 require "amigo/autoscaler/checkers/web_latency"
@@ -13,8 +14,8 @@ require "amigo/autoscaler/handlers/log"
 require "amigo/autoscaler/handlers/sentry"
 
 RSpec.describe Amigo::Autoscaler do
-  def new_autoscaler(latencies: {}, **kw)
-    kw[:checker] ||= Amigo::Autoscaler::Checkers::Fake.new(latencies)
+  def new_autoscaler(latencies: {}, pool_usage: nil, **kw)
+    kw[:checker] ||= Amigo::Autoscaler::Checkers::Fake.new(latencies:, pool_usage:)
     kw[:handler] ||= Amigo::Autoscaler::Handlers::Fake.new
     Amigo::Autoscaler.new(poll_interval: 0, **kw)
   end
@@ -109,7 +110,21 @@ RSpec.describe Amigo::Autoscaler do
       o = new_autoscaler(latencies: {"x" => 1, "y" => 20})
       o.setup
       o.check
-      expect(o.handler.ups).to match_array([[{"y" => 20}, 1, 0, {}]])
+      expect(o.handler.ups).to match_array([{depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil}])
+    end
+
+    it "alerts about high pool usage" do
+      o = new_autoscaler(pool_usage: 1.1)
+      o.setup
+      o.check
+      expect(o.handler.ups).to match_array([{depth: 1, duration: 0.0, high_latencies: {}, pool_usage: 1.1}])
+    end
+
+    it "does not alert on low pool usage" do
+      o = new_autoscaler(pool_usage: 1)
+      o.setup
+      o.check
+      expect(o.handler.ups).to match_array([])
     end
 
     it "keeps track of duration and depth after multiple alerts" do
@@ -118,10 +133,12 @@ RSpec.describe Amigo::Autoscaler do
       o.check
       sleep 0.1
       o.check
-      expect(o.handler.ups).to match_array([
-                                             [{"y" => 20}, 1, 0, {}],
-                                             [{"y" => 20}, 2, be > 0.05, {}],
-                                           ])
+      expect(o.handler.ups).to match_array(
+        [
+          {depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil},
+          {depth: 2, duration: be > 0, high_latencies: {"y" => 20}, pool_usage: nil},
+        ],
+      )
     end
 
     it "noops if recently alerted" do
@@ -131,10 +148,12 @@ RSpec.describe Amigo::Autoscaler do
       Timecop.freeze(now) { o.check }
       Timecop.freeze(now + 60) { o.check }
       Timecop.freeze(now + 180) { o.check }
-      expect(o.handler.ups).to match_array([
-                                             [{"y" => 20}, 1, 0, {}],
-                                             [{"y" => 20}, 2, 180, {}],
-                                           ])
+      expect(o.handler.ups).to match_array(
+        [
+          {depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil},
+          {depth: 2, duration: 180.0, high_latencies: {"y" => 20}, pool_usage: nil},
+        ],
+      )
     end
 
     it "invokes latency restored handlers once all queues have a latency at/below the threshold" do
@@ -151,22 +170,29 @@ RSpec.describe Amigo::Autoscaler do
       o.check
       o.check
       o.check
-      expect(o.handler.ups).to match_array([
-                                             [{"y" => 20}, 1, be_a(Numeric), {}],
-                                             [{"y" => 3}, 2, be_a(Numeric), {}],
-                                           ])
-      expect(o.handler.downs).to match_array([
-                                               [2, be_a(Numeric), {}],
-                                             ])
+      expect(o.handler.ups).to match_array(
+        [
+          {depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil},
+          {depth: 2, duration: be > 0, high_latencies: {"y" => 3},
+           pool_usage: nil,},
+        ],
+      )
+      expect(o.handler.downs).to match_array(
+        [
+          {depth: 2, duration: be > 0},
+        ],
+      )
     end
 
     it "persists across new_autoscalers" do
-      checker = Amigo::Autoscaler::Checkers::Fake.new([
-                                                        {"y" => 20},
-                                                        {"y" => 20},
-                                                        {"y" => 1},
-                                                        {"y" => 20},
-                                                      ])
+      checker = Amigo::Autoscaler::Checkers::Fake.new(
+        latencies: [
+          {"y" => 20},
+          {"y" => 20},
+          {"y" => 1},
+          {"y" => 20},
+        ],
+      )
       handler = Amigo::Autoscaler::Handlers::Fake.new
       t = Time.at(100)
       Timecop.freeze(t) do
@@ -198,14 +224,18 @@ RSpec.describe Amigo::Autoscaler do
         )
       end
 
-      expect(handler.ups).to match_array([
-                                           [{"y" => 20}, 1, 0, {}],
-                                           [{"y" => 20}, 1, 0, {}],
-                                           [{"y" => 20}, 2, 10, {}],
-                                         ])
-      expect(handler.downs).to match_array([
-                                             [2, 20, {}],
-                                           ])
+      expect(handler.ups).to match_array(
+        [
+          {depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil},
+          {depth: 2, duration: 10.0, high_latencies: {"y" => 20}, pool_usage: nil},
+          {depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil},
+        ],
+      )
+      expect(handler.downs).to match_array(
+        [
+          {depth: 2, duration: 20.0},
+        ],
+      )
     end
 
     describe "when an unhandled exception occurs" do
@@ -265,6 +295,20 @@ RSpec.describe Amigo::Autoscaler do
         ::RSpec::Expectations.fail_with("thread never died") unless dead
         expect(calls).to have_attributes(length: 3)
       end
+    end
+  end
+
+  describe Amigo::Autoscaler::Checkers::Chain do
+    it "prefers higher-latency and higher-usage metrics" do
+      ch = described_class.new(
+        [
+          Amigo::Autoscaler::Checkers::Fake.new(latencies: {"x" => 1}, pool_usage: 10),
+          Amigo::Autoscaler::Checkers::Fake.new(latencies: {"x" => 3, "y" => 1}, pool_usage: nil),
+          Amigo::Autoscaler::Checkers::Fake.new(latencies: {"x" => 2}, pool_usage: 1),
+        ],
+      )
+      expect(ch.get_pool_usage).to eq(10)
+      expect(ch.get_latencies).to eq({"x" => 3, "y" => 1})
     end
   end
 
@@ -361,6 +405,11 @@ RSpec.describe Amigo::Autoscaler do
           expect(ch.get_latencies).to eq({"web" => 1})
         end
       end
+
+      it "does not report pool usage" do
+        ch = described_class.new(redis:)
+        expect(ch.get_pool_usage).to be_nil
+      end
     end
 
     describe "with a RedisClient redis" do
@@ -388,12 +437,25 @@ RSpec.describe Amigo::Autoscaler do
       return cls.new
     end
 
-    it "calls the Sidekiq API for queues" do
+    it "calls the Sidekiq API for queue latency" do
       ch = described_class.new
       expect(ch.get_latencies).to eq({})
 
       expect(Sidekiq::Queue).to receive(:all).and_return([fake_q("x", 1), fake_q("y", 20)])
       expect(ch.get_latencies).to eq({"x" => 1, "y" => 20})
+    end
+
+    it "calls the Sidekiq API for usage" do
+      ch = described_class.new
+      expect(ch.get_pool_usage).to eq(0)
+
+      expect(Sidekiq::ProcessSet).to receive(:new).and_return(
+        [
+          Sidekiq::Process.new({"concurrency" => 4, "busy" => 3}),
+          Sidekiq::Process.new({"concurrency" => 4}),
+        ],
+      )
+      expect(ch.get_pool_usage).to eq(0.375)
     end
   end
 
@@ -410,8 +472,12 @@ RSpec.describe Amigo::Autoscaler do
       o.setup
       o.check
       o.check
-      expect(h1.ups).to match_array([[{"y" => 20}, 1, 0, {}]])
-      expect(h2.downs).to match_array([[1, be_a(Numeric), {}]])
+      expect(h1.ups).to match_array(
+        [
+          {depth: 1, duration: 0.0, high_latencies: {"y" => 20}, pool_usage: nil},
+        ],
+      )
+      expect(h2.downs).to match_array([{depth: 1, duration: be > 0}])
     end
   end
 
@@ -505,13 +571,15 @@ RSpec.describe Amigo::Autoscaler do
         with(body: "{\"quantity\":1}").
         to_return(resp({}))
 
-      checker = Amigo::Autoscaler::Checkers::Fake.new([
-                                                        {"y" => 20},
-                                                        {"y" => 20},
-                                                        {"y" => 20},
-                                                        {"y" => 20},
-                                                        {"y" => 0},
-                                                      ])
+      checker = Amigo::Autoscaler::Checkers::Fake.new(
+        latencies: [
+          {"y" => 20},
+          {"y" => 20},
+          {"y" => 20},
+          {"y" => 20},
+          {"y" => 0},
+        ],
+      )
       autoscaler1 = new_autoscaler(checker:)
       autoscaler1.setup
       autoscaler1.check
@@ -564,7 +632,8 @@ RSpec.describe Amigo::Autoscaler do
     it "logs on scale up and down" do
       Amigo.structured_logging = true
       expect(Amigo.log_callback).to receive(:[]).
-        with(nil, :warn, "high_latency_queues", {queues: {"x" => 11, "y" => 24}, depth: 1, duration: 0.0}).ordered
+        with(nil, :warn, "high_latency_queues",
+             {queues: {"x" => 11, "y" => 24}, depth: 1, duration: 0.0, pool_usage: nil},).ordered
       expect(Amigo.log_callback).to receive(:[]).
         with(nil, :info, "high_latency_queues_restored", {depth: 1, duration: be_a(Numeric)}).ordered
       h = described_class.new
@@ -592,7 +661,7 @@ RSpec.describe Amigo::Autoscaler do
       expect(Sentry.get_current_client).to receive(:capture_event).
         with(
           have_attributes(message: "Some queues have a high latency"),
-          have_attributes(extra: {high_latency_queues: {"x" => 11, "y" => 24}, duration: 0, depth: 1}),
+          have_attributes(extra: {high_latencies: {"x" => 11, "y" => 24}, duration: 0, depth: 1, pool_usage: nil}),
           include(:message),
         )
       handler = described_class.new

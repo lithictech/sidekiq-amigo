@@ -14,12 +14,12 @@ module Amigo
           super()
         end
 
-        def scale_up(checked_latencies, depth:, duration:, **kw)
-          @ups << [checked_latencies, depth, duration, kw]
+        def scale_up(**kw)
+          @ups << kw
         end
 
-        def scale_down(depth:, duration:, **kw)
-          @downs << [depth, duration, kw]
+        def scale_down(**kw)
+          @downs << kw
         end
       end
     end

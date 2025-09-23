@@ -18,12 +18,12 @@ module Amigo
           super()
         end
 
-        def scale_up(checked_latencies, depth:, duration:, **_kw)
-          self._log(:warn, @message, queues: checked_latencies, depth: depth, duration: duration)
+        def scale_up(high_latencies:, depth:, duration:, pool_usage:, **)
+          self._log(:warn, @message, queues: high_latencies, depth:, duration:, pool_usage:)
         end
 
-        def scale_down(depth:, duration:, **_kw)
-          self._log(:info, "#{@message}_restored", depth: depth, duration: duration)
+        def scale_down(depth:, duration:, **)
+          self._log(:info, "#{@message}_restored", depth:, duration:)
         end
 
         protected def _log(level, msg, **kw)

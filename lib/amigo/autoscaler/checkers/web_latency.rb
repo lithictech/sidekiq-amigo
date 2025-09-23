@@ -34,6 +34,8 @@ module Amigo
           super()
         end
 
+        def get_pool_usage = nil
+
         def get_latencies
           now = Time.now.to_i
           window = (now - (WINDOW - 1))..now
