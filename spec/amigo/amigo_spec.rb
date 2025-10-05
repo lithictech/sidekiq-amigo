@@ -127,6 +127,54 @@ RSpec.describe Amigo do
         end.to raise_error(/xyz/)
       end
     end
+
+    describe "with an event is published that should not have been" do
+      it "fails with a proper message with no payload" do
+        expect do
+          expect do
+            described_class.publish("some-event")
+          end.to_not publish("some-event")
+        end.to raise_error(
+          RSpec::Expectations::ExpectationNotMetError,
+          "expected a 'some-event' event not to be fired but one was.",
+        )
+      end
+
+      it "fails with the proper message when the event has a payload" do
+        expect do
+          expect do
+            described_class.publish("some-event", {x: 1})
+          end.to_not publish("some-event")
+        end.to raise_error(
+          RSpec::Expectations::ExpectationNotMetError,
+          "expected a 'some-event' event not to be fired but one was: [{\"x\" => 1}].",
+        )
+      end
+
+      it "can handle publish with no event name" do
+      end
+    end
+
+    describe "when not using an event name" do
+      it "warns for the positive case" do
+        expect(RSpec::Expectations.configuration.false_positives_handler).to receive(:call).
+          with(/Using the `publish` matcher without providing/)
+        expect do
+          described_class.publish("some-event")
+        end.to publish
+      end
+
+      it "succeeds for the negative case" do
+        expect do
+          expect do
+            described_class.publish("some-event")
+          end.to_not publish
+        end.to raise_error(
+          RSpec::Expectations::ExpectationNotMetError,
+          "expected a 'some-event' event not to be fired but one was.",
+        )
+      end
+    end
   end
 
   describe "subscribers" do

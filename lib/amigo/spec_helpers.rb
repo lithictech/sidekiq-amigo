@@ -72,7 +72,7 @@ module Amigo
         true
       end
 
-      def matches?(given_proc)
+      def matches?(given_proc, negative_expectation=false)
         unless given_proc.respond_to?(:call)
           warn "publish matcher used with non-proc object #{given_proc.inspect}"
           return false
@@ -88,24 +88,41 @@ module Amigo
           given_proc.call
         end
 
-        self.match_expected_events
+        self.match_expected_events(negative_expectation)
 
         return @error.nil? && @missing.empty?
       end
+
+      # rubocop:disable Naming/PredicatePrefix
+      def does_not_match?(given_proc)
+        !matches?(given_proc, true)
+      end
+      # rubocop:enable Naming/PredicatePrefix
 
       def on_publish_error(err)
         @error = err
       end
 
-      def match_expected_events
+      def match_expected_events(negative_expectation)
         @expected_events.each do |expected_event, expected_payload|
+          if expected_event.nil? && !negative_expectation
+            RSpec::Expectations.configuration.false_positives_handler.call(
+              "Using the `publish` matcher without providing a specific " \
+              "event name risks false positives, since `publish` " \
+              "will match any event. Instead, provide the name " \
+              "of the event you are matching against."\
+              "This message can be suppressed by setting: " \
+              "`RSpec::Expectations.configuration.on_potential_false" \
+              "_positives = :nothing`",
+            )
+          end
           match = @recorded_events.find do |recorded|
             self.event_names_match?(expected_event, recorded.name) &&
               self.payloads_match?(expected_payload, recorded.payload)
           end
 
           if match
-            self.add_matched(expected_event, expected_payload)
+            self.add_matched(expected_event, expected_payload, match)
           else
             self.add_missing(expected_event, expected_payload)
           end
@@ -113,6 +130,7 @@ module Amigo
       end
 
       def event_names_match?(expected, actual)
+        return true if expected.nil?
         return expected.matches?(actual) if expected.respond_to?(:matches?)
         return expected.match?(actual) if expected.respond_to?(:match?)
         return expected == actual
@@ -123,8 +141,8 @@ module Amigo
         return expected.nil? || expected.empty? || expected == actual
       end
 
-      def add_matched(event, payload)
-        @matched << [event, payload]
+      def add_matched(topic, payload, event)
+        @matched << [topic, payload, event]
       end
 
       def add_missing(event, payload)
@@ -156,10 +174,12 @@ module Amigo
 
       def failure_message_when_negated
         messages = []
-        @matched.each do |event, _payload|
-          message = "expected a '%s' event not to be fired" % [event]
-          message << (" with a payload of %p" % [@expected_payload]) if @expected_payload
-          message << " but one was."
+        @matched.each do |topic, payload, event|
+          message = "expected a '#{topic || event.name}' event not to be fired"
+          message << " with a payload of #{payload.inspect}" if payload
+          message << " but one was"
+          event.payload.any? && message << ": #{event.payload.inspect}"
+          message << "."
           messages << message
         end
 
