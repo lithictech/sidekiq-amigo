@@ -147,11 +147,19 @@ RSpec.describe Amigo do
           end.to_not publish("some-event")
         end.to raise_error(
           RSpec::Expectations::ExpectationNotMetError,
-          "expected a 'some-event' event not to be fired but one was: [{\"x\" => 1}].",
+          match(/expected a 'some-event' event not to be fired but one was: \[\{"x"\s?=>\s?1}\]\./),
         )
       end
 
       it "can handle publish with no event name" do
+        expect do
+          expect do
+            described_class.publish("some-event", {x: 1})
+          end.to_not publish
+        end.to raise_error(
+          RSpec::Expectations::ExpectationNotMetError,
+          match(/expected a 'some-event' event not to be fired but one was: \[\{"x"\s?=>\s?1}\]\./),
+        )
       end
     end
 
