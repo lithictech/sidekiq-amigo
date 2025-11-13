@@ -59,6 +59,14 @@ module Amigo
     # Raise this class, or a subclass of it, to:
     # - Use +Retry+ exception semantics while the current attempt is <= +attempts+, or
     # - Use +Die+ exception semantics if the current attempt is > +attempts+.
+    #
+    # Callers can provide a subclass with two methods that are looked for:
+    #
+    # If on_retry is defined, it is called with (worker instance, job hash).
+    # If on_retry returns +:skip+, do NOT retry (do not send to the retry set).
+    #
+    # If on_die is defined, it is called with (worker instance, job hash).
+    # If on_die returns +:skip+, do NOT send to the dead set.
     class OrDie < Error
       attr_reader :attempts, :interval_or_timestamp, :wrapped
 
@@ -99,13 +107,27 @@ module Amigo
       end
 
       def handle_retry(worker, job, e)
+        if e.respond_to?(:on_retry)
+          callback_result = e.on_retry(worker, job)
+          if callback_result == :skip
+            Sidekiq.logger.warn("skipping_retryset_schedule")
+            return
+          end
+        end
         Sidekiq.logger.info("scheduling_retry")
         job["error_class"] = e.class.to_s
         job["error_message"] = e.to_s
         self.amigo_retry_in(worker.class, job, e.interval_or_timestamp)
       end
 
-      def handle_die(_worker, job, e)
+      def handle_die(worker, job, e)
+        if e.respond_to?(:on_die)
+          callback_result = e.on_die(worker, job)
+          if callback_result == :skip
+            Sidekiq.logger.warn("skipping_deadset_send")
+            return
+          end
+        end
         Sidekiq.logger.warn("sending_to_deadset")
         job["error_class"] = e.class.to_s
         job["error_message"] = e.to_s
