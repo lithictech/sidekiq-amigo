@@ -658,6 +658,12 @@ RSpec.describe Amigo::Autoscaler do
       expect(requp1).to have_been_made.times(2)
       expect(reqdown1).to have_been_made.times(2)
     end
+
+    it "can scale down before scaling up" do
+      autoscaler = new_autoscaler(latencies: [{"y" => 20}, {"y" => 0}])
+      autoscaler.setup
+      expect { autoscaler.handler.scale_down }.to_not raise_error
+    end
   end
 
   describe Amigo::Autoscaler::Handlers::Log do

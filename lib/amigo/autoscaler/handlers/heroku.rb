@@ -131,7 +131,7 @@ module Amigo
             r.del("#{namespace}/active_event_initial_workers")
           end
           @active_event_initial_workers = nil
-          return :noscale if initial_workers.zero?
+          return :noscale if initial_workers.nil? || initial_workers.zero?
           @client.formation.update(@app_id_or_app_name, @formation, {quantity: initial_workers})
           return :scaled
         end
